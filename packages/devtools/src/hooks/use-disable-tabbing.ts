@@ -1,14 +1,25 @@
 import { createEffect } from 'solid-js'
 import { TANSTACK_DEVTOOLS } from '../utils/storage'
 
+const originalTabIndex = new WeakMap<Element, string | null>()
+
 const recursivelyChangeTabIndex = (
   node: Element | HTMLElement,
   remove = true,
 ) => {
   if (remove) {
+    if (!originalTabIndex.has(node)) {
+      originalTabIndex.set(node, node.getAttribute('tabIndex'))
+    }
     node.setAttribute('tabIndex', '-1')
   } else {
-    node.removeAttribute('tabIndex')
+    const original = originalTabIndex.get(node)
+    if (original === undefined) return
+    if (original === null) {
+      node.removeAttribute('tabIndex')
+    } else {
+      node.setAttribute('tabIndex', original)
+    }
   }
   for (const child of node.children) {
     recursivelyChangeTabIndex(child, remove)

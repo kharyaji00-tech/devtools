@@ -118,6 +118,9 @@ export default function DevTools() {
   ) => {
     if (startEvent.button !== 0 || !panelElement) return
     startEvent.preventDefault()
+    panelElement
+      .querySelector<HTMLElement>('[data-tsd-separator="resize"]')
+      ?.focus()
     setIsResizing(true)
     const originalHeight = panelElement.getBoundingClientRect().height
     const startY = startEvent.clientY
