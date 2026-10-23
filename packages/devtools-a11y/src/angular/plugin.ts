@@ -1,9 +1,19 @@
 import { createAngularPlugin } from '@tanstack/devtools-utils/angular'
 import { A11yDevtoolsPanel } from './A11yDevtools'
 
-const [a11yDevtoolsPlugin, a11yDevtoolsNoOpPlugin] = createAngularPlugin({
-  name: 'TanStack A11y',
-  render: A11yDevtoolsPanel,
-})
+import type { A11yPluginOptions } from '../core/types/types'
 
-export { a11yDevtoolsPlugin, a11yDevtoolsNoOpPlugin }
+export function a11yDevtoolsPlugin(options?: A11yPluginOptions) {
+  return createAngularPlugin({
+    name: 'TanStack A11y',
+    render: () => (inputs, host) =>
+      A11yDevtoolsPanel()(() => ({ ...inputs(), options }), host),
+  })[0]()
+}
+
+export function a11yDevtoolsNoOpPlugin(_options?: A11yPluginOptions) {
+  return createAngularPlugin({
+    name: 'TanStack A11y',
+    render: A11yDevtoolsPanel,
+  })[1]()
+}

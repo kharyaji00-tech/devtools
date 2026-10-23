@@ -39,6 +39,13 @@ export interface PluginMetadata {
     importName: string
     /** Whether this is a JSX component or a function that returns a plugin */
     type: 'jsx' | 'function'
+    /**
+     * The module specifier to import `importName` from. Defaults to
+     * `packageName` when omitted. Use this when the export lives on a subpath
+     * of the package (e.g. `@tanstack/devtools-a11y/react`) while
+     * `packageName` still names the package for dependency checks.
+     */
+    importPath?: string
   }
 
   /** Custom plugin ID pattern for matching against registered plugins in devtools.
@@ -215,8 +222,9 @@ const PLUGIN_REGISTRY: Record<string, PluginMetadata> = {
     description:
       'Audit accessibility issues in real-time with axe-core. Supports WCAG 2.1/2.2, live monitoring, and visual overlays.',
     pluginImport: {
-      importName: 'createA11yPlugin',
+      importName: 'a11yDevtoolsPlugin',
       type: 'function',
+      importPath: '@tanstack/devtools-a11y/react',
     },
     pluginId: 'devtools-a11y',
     docsUrl: 'https://tanstack.com/devtools/latest/docs/plugins/a11y',

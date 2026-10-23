@@ -25,10 +25,11 @@ import type { ParentComponent } from 'solid-js'
 // context state
 //
 
-function createAllyValue() {
+function createAllyValue(options?: A11yPluginOptions) {
   const { theme } = createTheme()
-  const [config, setConfig] =
-    createStore<Required<A11yPluginOptions>>(mergeConfig())
+  const [config, setConfig] = createStore<Required<A11yPluginOptions>>(
+    mergeConfig(options),
+  )
 
   const [allyResult, setAllyResult] = createStore<{
     audit?: A11yAuditResult
@@ -101,10 +102,12 @@ type ContextType = ReturnType<typeof createAllyValue>
 
 const AllyContext = createContext<ContextType | null>(null)
 
-type AllyProviderProps = {}
+type AllyProviderProps = {
+  options?: A11yPluginOptions
+}
 
 export const AllyProvider: ParentComponent<AllyProviderProps> = (props) => {
-  const value = createAllyValue()
+  const value = createAllyValue(props.options)
 
   return (
     <AllyContext.Provider value={value}>{props.children}</AllyContext.Provider>

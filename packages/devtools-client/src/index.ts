@@ -49,6 +49,14 @@ export interface PluginInjection {
   pluginImport?: {
     importName: string
     type: 'jsx' | 'function'
+    /**
+     * The module specifier to import `importName` from.
+     *
+     * Defaults to `packageName` when omitted. Set this when the export lives
+     * on a subpath of the package (e.g. `@tanstack/devtools-a11y/react`) while
+     * `packageName` still names the package for dependency checks.
+     */
+    importPath?: string
   }
 }
 

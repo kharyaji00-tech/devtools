@@ -31,7 +31,11 @@ export const addPluginToDevtools = (
   devtoolsFileId: string | null,
   packageName: string,
   pluginName: string,
-  pluginImport?: { importName: string; type: 'jsx' | 'function' },
+  pluginImport?: {
+    importName: string
+    type: 'jsx' | 'function'
+    importPath?: string
+  },
 ): { success: boolean; error?: string } => {
   // Check if we found the devtools file
   if (!devtoolsFileId) {

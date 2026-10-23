@@ -17,6 +17,7 @@ const testTransform = (
   pluginImport: {
     importName: string
     type: 'jsx' | 'function'
+    importPath?: string
   },
 ) => {
   const devtoolsComponentName = findDevtoolsComponentName(code)
@@ -1134,6 +1135,123 @@ function App() {
       )
       expect(importMatches).not.toBeNull()
       expect(importMatches!.length).toBe(1)
+    })
+  })
+
+  describe('subpath imports (importPath)', () => {
+    test('emits the import from importPath and the function call for a function plugin', () => {
+      const code = `
+        import { TanStackDevtools } from '@tanstack/react-devtools'
+
+        function App() {
+          return <TanStackDevtools plugins={[]} />
+        }
+      `
+
+      const result = testTransform(
+        code,
+        '@tanstack/devtools-a11y',
+        'Accessibility Devtools',
+        {
+          importName: 'a11yDevtoolsPlugin',
+          type: 'function',
+          importPath: '@tanstack/devtools-a11y/react',
+        },
+      )
+
+      expect(result.transformed).toBe(true)
+      expect(removeEmptySpace(result.code)).toBe(
+        removeEmptySpace(`
+          import { TanStackDevtools } from '@tanstack/react-devtools'
+          import { a11yDevtoolsPlugin } from "@tanstack/devtools-a11y/react";
+
+          function App() {
+            return <TanStackDevtools plugins={[a11yDevtoolsPlugin()]} />
+          }
+        `),
+      )
+    })
+
+    test('emits the import from importPath for a JSX plugin', () => {
+      const code = `
+        import { TanStackDevtools } from '@tanstack/react-devtools'
+
+        function App() {
+          return <TanStackDevtools />
+        }
+      `
+
+      const result = testTransform(
+        code,
+        '@tanstack/devtools-a11y',
+        'Accessibility Devtools',
+        {
+          importName: 'A11yDevtoolsPanel',
+          type: 'jsx',
+          importPath: '@tanstack/devtools-a11y/react',
+        },
+      )
+
+      expect(result.transformed).toBe(true)
+      expect(result.code).toContain(
+        'import { A11yDevtoolsPanel } from "@tanstack/devtools-a11y/react"',
+      )
+      // The package name (used for dependency checks) is NOT the emitted specifier.
+      expect(result.code).not.toContain('"@tanstack/devtools-a11y"')
+    })
+
+    test('does not re-add an import already present from the importPath subpath', () => {
+      const code = `
+        import { TanStackDevtools } from '@tanstack/react-devtools'
+        import { a11yDevtoolsPlugin } from '@tanstack/devtools-a11y/react'
+
+        function App() {
+          return <TanStackDevtools />
+        }
+      `
+
+      const result = testTransform(
+        code,
+        '@tanstack/devtools-a11y',
+        'Accessibility Devtools',
+        {
+          importName: 'a11yDevtoolsPlugin',
+          type: 'function',
+          importPath: '@tanstack/devtools-a11y/react',
+        },
+      )
+
+      expect(result.transformed).toBe(true)
+      const importMatches = result.code.match(
+        /import\s*\{\s*a11yDevtoolsPlugin\s*\}\s*from\s*['"]@tanstack\/devtools-a11y\/react['"]/g,
+      )
+      expect(importMatches).not.toBeNull()
+      expect(importMatches!.length).toBe(1)
+    })
+
+    test('falls back to packageName when importPath is omitted', () => {
+      const code = `
+        import { TanStackDevtools } from '@tanstack/react-devtools'
+
+        function App() {
+          return <TanStackDevtools plugins={[]} />
+        }
+      `
+
+      const result = testTransform(
+        code,
+        '@tanstack/react-form-devtools',
+        'react-form',
+        {
+          importName: 'FormDevtoolsPlugin',
+          type: 'function',
+        },
+      )
+
+      expect(result.transformed).toBe(true)
+      expect(result.code).toContain(
+        'import { FormDevtoolsPlugin } from "@tanstack/react-form-devtools"',
+      )
     })
   })
 })

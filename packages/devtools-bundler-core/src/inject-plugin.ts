@@ -138,6 +138,7 @@ export const transformAndInject = (
 ): { code: string; transformed: boolean } | null => {
   const importName = injection.pluginImport?.importName
   const pluginType = injection.pluginImport?.type || 'jsx'
+  const importPath = injection.pluginImport?.importPath ?? injection.packageName
   const displayName = injection.pluginName
 
   if (!importName) {
@@ -229,7 +230,7 @@ export const transformAndInject = (
       walk(result.program, (n) => {
         if (n.type !== 'ImportDeclaration') return
         if (n.end > state.lastImportEnd) state.lastImportEnd = n.end
-        if (n.source.value !== injection.packageName) return
+        if (n.source.value !== importPath) return
         for (const spec of n.specifiers) {
           if (
             spec.type === 'ImportSpecifier' &&
@@ -241,7 +242,7 @@ export const transformAndInject = (
         }
       })
       if (!state.alreadyImported) {
-        const importStr = `\nimport { ${importName} } from ${JSON.stringify(injection.packageName)};`
+        const importStr = `\nimport { ${importName} } from ${JSON.stringify(importPath)};`
         s.appendRight(state.lastImportEnd, importStr)
       }
     }
