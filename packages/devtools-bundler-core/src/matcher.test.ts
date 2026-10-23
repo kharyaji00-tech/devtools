@@ -30,4 +30,24 @@ describe('matcher', () => {
     expect(matcher(patterns, 'src/components/ignored-file.jsx')).toBe(true)
     expect(matcher(patterns, 'src/components/other.jsx')).toBe(false)
   })
+
+  it('is deterministic across repeated calls with a g-flagged regex', () => {
+    const pattern = /\.test\.tsx$/g
+    for (let i = 0; i < 5; i++) {
+      expect(matcher([pattern], 'src/Foo.test.tsx')).toBe(true)
+    }
+  })
+
+  it('is deterministic across repeated calls with a y-flagged regex', () => {
+    const pattern = /\.test\.tsx$/y
+    for (let i = 0; i < 5; i++) {
+      expect(matcher([pattern], 'src/Foo.test.tsx')).toBe(true)
+    }
+  })
+
+  it('does not mutate the user-supplied regex lastIndex', () => {
+    const pattern = /\.test\.tsx$/g
+    expect(matcher([pattern], 'src/Foo.test.tsx')).toBe(true)
+    expect(pattern.lastIndex).toBe(0)
+  })
 })
