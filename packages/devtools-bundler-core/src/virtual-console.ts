@@ -251,6 +251,17 @@ export function generateConsolePipeCode(
           return;
         }
 
+        // Skip Vite 8 server.forwardConsole logs on the server. Vite prints
+        // forwarded client console calls as "<time> [vite] [console.<level>] …",
+        // which would otherwise be captured as a fresh server log and echoed
+        // back to the browser, creating an infinite client→terminal→server→
+        // client echo loop. Only applies on the server (where the loop closes).
+        if (isServer && args.length > 0 && typeof args[0] === 'string' &&
+            (args[0].indexOf('[vite]') !== -1 ||
+             args[0].indexOf('[console.') !== -1)) {
+          return;
+        }
+
         var safeArgs = args.map(function(arg) {
           try {
             return serializeConsoleArg(arg, [], 0);

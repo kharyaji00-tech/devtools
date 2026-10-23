@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { generateConsolePipeCode } from './virtual-console'
+import type { ConsoleLevel } from './types'
 
 const TEST_VITE_URL = 'http://localhost:5173'
 
@@ -7,6 +8,7 @@ afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
   delete (window as any).__TSD_CONSOLE_PIPE_INITIALIZED__
+  delete (globalThis as any).__TSD_SERVER_CONSOLE_PIPE_INITIALIZED__
 })
 
 function setupWarnConsolePipe() {
@@ -44,6 +46,93 @@ function setupWarnConsolePipe() {
 function getFirstFetchBody(fetchMock: ReturnType<typeof vi.fn>) {
   const [, init] = fetchMock.mock.calls[0]!
   return JSON.parse(init.body)
+}
+
+function getFetchBodies(fetchMock: ReturnType<typeof vi.fn>) {
+  return fetchMock.mock.calls.map((call) => {
+    const [, init] = call as [unknown, { body: string }]
+    return JSON.parse(init.body)
+  })
+}
+
+/**
+ * Installs the console pipe in the *server* realm (where `typeof window ===
+ * 'undefined'`). The generated IIFE POSTs server logs to
+ * `${VITE_SERVER_URL}/__tsd/console-pipe/server` with `source: 'server'`.
+ */
+function setupServerPipe(levels: Array<ConsoleLevel> = ['error']) {
+  const originals: Record<string, unknown> = {}
+  const captures: Record<string, ReturnType<typeof vi.fn>> = {}
+  for (const level of levels) {
+    originals[level] = (console as any)[level]
+    captures[level] = vi.fn()
+    ;(console as any)[level] = captures[level]
+  }
+
+  const fetchMock = vi.fn().mockResolvedValue(undefined)
+  vi.stubGlobal('fetch', fetchMock)
+
+  // Simulate the server/SSR realm so the IIFE's `typeof window === 'undefined'`
+  // branch runs (matching how the pipe executes in the Vite dev-server process).
+  const savedWindow = (globalThis as any).window
+  delete (globalThis as any).window
+  delete (globalThis as any).__TSD_SERVER_CONSOLE_PIPE_INITIALIZED__
+
+  const code = generateConsolePipeCode(levels, TEST_VITE_URL)
+  new Function(code)()
+
+  return {
+    fetchMock,
+    captures,
+    restore: () => {
+      for (const level of levels) {
+        ;(console as any)[level] = originals[level]
+      }
+      ;(globalThis as any).window = savedWindow
+    },
+  }
+}
+
+/**
+ * Installs the console pipe in the *client* realm for the given levels. Like
+ * `setupWarnConsolePipe` but configurable so the Vite-guard tests can use
+ * arbitrary levels (e.g. 'error').
+ */
+function setupClientPipe(levels: Array<ConsoleLevel> = ['error']) {
+  const originals: Record<string, unknown> = {}
+  const captures: Record<string, ReturnType<typeof vi.fn>> = {}
+  for (const level of levels) {
+    originals[level] = (console as any)[level]
+    captures[level] = vi.fn()
+    ;(console as any)[level] = captures[level]
+  }
+
+  const fetchMock = vi.fn().mockResolvedValue(undefined)
+
+  class MockEventSource {
+    onmessage: ((event: MessageEvent) => void) | null = null
+    onerror: (() => void) | null = null
+    constructor(_url: string) {}
+  }
+
+  vi.stubGlobal('fetch', fetchMock)
+  vi.stubGlobal('EventSource', MockEventSource)
+
+  delete (window as any).__TSD_CONSOLE_PIPE_INITIALIZED__
+
+  const code = generateConsolePipeCode(levels, TEST_VITE_URL)
+  new Function(code)()
+
+  return {
+    fetchMock,
+    captures,
+    MockEventSource,
+    restore: () => {
+      for (const level of levels) {
+        ;(console as any)[level] = originals[level]
+      }
+    },
+  }
 }
 
 describe('virtual-console', () => {
@@ -237,6 +326,156 @@ describe('virtual-console', () => {
       expect(body.entries[0].args[3]).toContain('... (1 more chars)')
       expect(body.entries[0].args[4]).toBe('[Uint8Array(1024)]')
       expect(body.entries[0].args[5].a.b.c.d.e.f).toBe('[MaxDepth]')
+    } finally {
+      restore()
+    }
+  })
+
+  test('skips Vite-forwarded console logs on the server (echo loop fix)', async () => {
+    vi.useFakeTimers()
+
+    const { fetchMock, restore } = setupServerPipe(['error', 'warn'])
+
+    try {
+      // A genuine server-side app log must still be piped to the browser.
+      console.error('real server boom')
+
+      // Vite 8's server.forwardConsole prints forwarded client console calls
+      // through the server logger as "<time> [vite] [console.<level>] …".
+      // These must NOT be re-captured as server logs (that is the echo loop).
+      console.error('10:00:00 AM [vite] [console.error] [Server] hello')
+      console.warn('10:00:01 AM [vite] [console.warn] [Server] careful')
+
+      await vi.advanceTimersByTimeAsync(50)
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      const bodies = getFetchBodies(fetchMock)
+      const entries = bodies.flatMap((b) => b.entries)
+
+      expect(entries).toHaveLength(1)
+      expect(entries[0].args[0]).toBe('real server boom')
+      expect(entries[0].level).toBe('error')
+      expect(entries[0].source).toBe('server')
+      expect(entries.some((e) => String(e.args[0]).includes('[vite]'))).toBe(
+        false,
+      )
+      expect(entries.some((e) => String(e.args[0]).includes('[console.'))).toBe(
+        false,
+      )
+    } finally {
+      restore()
+    }
+  })
+
+  test('skips Vite-forwarded logs even without the [vite] tag', async () => {
+    vi.useFakeTimers()
+
+    const { fetchMock, restore } = setupServerPipe(['error'])
+
+    try {
+      console.error('genuine server message')
+      // Some Vite variants log forwarded console with a [console.<level>] tag
+      // but no explicit [vite] tag — the guard must still recognize it.
+      console.error('10:00:00 AM [console.error] forwarded without vite tag')
+
+      await vi.advanceTimersByTimeAsync(50)
+
+      const bodies = getFetchBodies(fetchMock)
+      const entries = bodies.flatMap((b) => b.entries)
+
+      expect(entries).toHaveLength(1)
+      expect(entries[0].args[0]).toBe('genuine server message')
+    } finally {
+      restore()
+    }
+  })
+
+  test('server guard only skips true string args', async () => {
+    vi.useFakeTimers()
+
+    const { fetchMock, restore } = setupServerPipe(['error'])
+
+    try {
+      // Non-string first args must not be affected by the guard.
+      console.error(42, 'number first arg')
+      console.error({ key: 'value' })
+
+      await vi.advanceTimersByTimeAsync(50)
+
+      const bodies = getFetchBodies(fetchMock)
+      const entries = bodies.flatMap((b) => b.entries)
+
+      expect(entries).toHaveLength(2)
+      expect(entries[0].args[0]).toBe(42)
+      expect(entries[1].args[0]).toMatchObject({ key: 'value' })
+    } finally {
+      restore()
+    }
+  })
+
+  test('does not skip Vite-format logs on the client (guard is server-only)', async () => {
+    vi.useFakeTimers()
+
+    const { fetchMock, restore } = setupClientPipe(['error'])
+
+    try {
+      // On the client, the new guard must not fire: the loop only closes on the
+      // server, and a browser log that merely contains "[vite]" is genuine
+      // client output that must still be piped.
+      console.error('something [vite] in my client log')
+      console.error('another [console.error] client message')
+
+      await vi.advanceTimersByTimeAsync(100)
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      const body = getFirstFetchBody(fetchMock)
+      expect(body.entries).toHaveLength(2)
+      expect(body.entries[0].args[0]).toBe('something [vite] in my client log')
+      expect(body.entries[1].source).toBe('client')
+    } finally {
+      restore()
+    }
+  })
+
+  test('breaks the client→terminal→server→client echo loop', async () => {
+    vi.useFakeTimers()
+
+    const { fetchMock, captures, restore } = setupServerPipe(['error'])
+
+    try {
+      // The genuine server error seeds the flow.
+      console.error('boom')
+
+      // Simulate several Vite-forwarded reprints that, before the fix, each
+      // re-broadcasts to the browser, which re-prints through Vite's forwarder,
+      // which re-captures on the server … nesting [Server] prefixes each hop.
+      // Each of these lines matches the Vite logger format and must be skipped.
+      console.error('10:00:00 AM [vite] [console.error] [Server] boom')
+      console.error('10:00:00 AM [vite] [console.error] [Server] [Server] boom')
+      console.error(
+        '10:00:00 AM [vite] [console.error] [Server] [Server] [Server] boom',
+      )
+
+      await vi.advanceTimersByTimeAsync(50)
+
+      const bodies = getFetchBodies(fetchMock)
+      const entries = bodies.flatMap((b) => b.entries)
+
+      // Bounded: only the single genuine server line is ever re-broadcast,
+      // regardless of how many nested Vite reprints arrive. This is the
+      // termination guarantee that was missing before the fix.
+      expect(entries).toHaveLength(1)
+      expect(entries[0].args[0]).toBe('boom')
+      expect(entries.some((e) => String(e.args[0]).includes('[vite]'))).toBe(
+        false,
+      )
+
+      // The genuine line still printed to the terminal exactly once, and each
+      // Vite reprint still printed to the terminal (original.apply always runs)
+      // — they are simply not re-broadcast to the browser.
+      expect(captures.error).toHaveBeenCalledTimes(4)
     } finally {
       restore()
     }
