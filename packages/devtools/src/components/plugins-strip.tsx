@@ -72,6 +72,14 @@ export const PluginsStrip = (props: { isOpen: Accessor<boolean> }) => {
       window.clearTimeout(holdTimer)
       document.removeEventListener('pointermove', move)
       document.removeEventListener('pointerup', up)
+      // Clear when the gesture ends, not on the next press. A drag that ends
+      // away from the entry produces no `click` at all, and a keyboard or AT
+      // activation fires `click` with no pointer events — so no preceding
+      // `pointerdown` ever resets it. Leaving the flag set here would swallow
+      // that click. A genuine drag releases over the workspace (no `click`
+      // reaches the entry), so clearing here cannot re-toggle it; the per-press
+      // reset in `startStripDrag` covers only the path a keyboard click skips.
+      suppressClick = false
     }
     document.addEventListener('pointermove', move)
     document.addEventListener('pointerup', up)
@@ -138,8 +146,9 @@ export const PluginsStrip = (props: { isOpen: Accessor<boolean> }) => {
               selected={false}
               onPointerDown={(event) => startStripDrag(plugin.id!, event)}
               onClick={() => {
-                // Set by this same gesture if it turned into a drag, and cleared
-                // by the next press, so it can never leak into a later click.
+                // Set by this same gesture if the hold fired, and cleared when
+                // that gesture ends (pointerup) — so it can never leak into a
+                // later click, including a pointer-less keyboard/AT activation.
                 if (suppressClick) return
                 selectPlugin(plugin.id!)
               }}
