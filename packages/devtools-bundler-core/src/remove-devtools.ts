@@ -128,19 +128,21 @@ export function removeDevtools(code: string, id: string) {
 
       pluginRefs.push(...getPluginReferences(opening))
 
+      const isNestedInJsx =
+        parentNode?.type === 'JSXElement' || parentNode?.type === 'JSXFragment'
+
       let end = node.end
-      if (code[end] === '\n') end++
+      if (isNestedInJsx && code[end] === '\n') end++
       /**
        * Devtools nodes can be removed safely when nested in JSX.
        * In all other contexts, replace them with `null` to avoid leaving invalid syntax.
+       * Only consume the trailing newline in the remove branch; overwriting through it
+       * would glue `null` to the next statement and produce invalid syntax.
        */
-      if (
-        parentNode?.type === 'JSXElement' ||
-        parentNode?.type === 'JSXFragment'
-      ) {
+      if (isNestedInJsx) {
         s.remove(node.start, end)
       } else {
-        s.overwrite(node.start, end, 'null')
+        s.overwrite(node.start, node.end, 'null')
       }
     })
 

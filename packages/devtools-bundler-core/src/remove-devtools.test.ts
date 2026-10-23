@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { parseSync } from 'oxc-parser'
 import { removeDevtools } from './remove-devtools'
 
 const removeEmptySpace = (str: string) => {
@@ -691,5 +692,61 @@ export function DevtoolsProvider() {
 }
 `),
     )
+  })
+
+  describe('null-overwrite preserves valid syntax (whitespace-sensitive)', () => {
+    // Re-parse the transformed output to assert it stays valid JavaScript/TSX.
+    // The rest of this file compares through `removeEmptySpace`, which strips
+    // whitespace from both sides and so cannot catch a swallowed newline.
+    const assertParses = (code: string, id = 'test.tsx') => {
+      const result = parseSync(id, code, {
+        sourceType: 'module',
+        lang: 'tsx',
+      })
+      expect(result.errors).toHaveLength(0)
+    }
+
+    test('keeps the newline between a null-overwritten declarator and the next statement', () => {
+      const input = `import { TanStackDevtools } from '@tanstack/react-devtools'
+const x = <TanStackDevtools />
+const y = 1
+`
+      const out = removeDevtools(input, 'test.tsx')!
+
+      // Whitespace-sensitive: the newline must survive so `null` is not glued to the next statement.
+      expect(out.code).toBe(`const x = null
+const y = 1
+`)
+      assertParses(out.code)
+    })
+
+    test('nested-in-JSX removal still collapses the devtools line (remove branch unchanged)', () => {
+      const input = `import { TanStackDevtools } from '@tanstack/react-devtools'
+export function App() {
+  return (
+    <>
+      <TanStackDevtools />
+      <div>after</div>
+    </>
+  )
+}
+`
+      const out = removeDevtools(input, 'test.tsx')!
+
+      // The remove branch must still consume the trailing newline so the devtools
+      // element is gone and the following line moves up. (The element's leading
+      // indentation is untouched by MagicString's remove, which is the pre-existing
+      // behavior and unrelated to this fix.)
+      expect(out.code).toBe(`export function App() {
+  return (
+    <>
+            <div>after</div>
+    </>
+  )
+}
+`)
+      expect(out.code).not.toContain('TanStackDevtools')
+      assertParses(out.code)
+    })
   })
 })
