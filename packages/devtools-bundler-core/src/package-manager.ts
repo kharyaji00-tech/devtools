@@ -164,18 +164,13 @@ export const emitOutdatedDeps = async () => {
     const packageManager = detectPackageManager()
     const outdatedCommand = getOutdatedCommand(packageManager)
 
-    exec(outdatedCommand, (_, stdout) => {
+    exec(outdatedCommand, (_err, stdout) => {
       // outdated commands exit with code 1 if there are outdated packages, but still output valid JSON
-      if (stdout) {
-        const newOutdatedDeps = tryParseJson<OutdatedDeps>(stdout)
-        if (!newOutdatedDeps) {
-          return
-        }
-        devtoolsEventClient.emit('outdated-deps-read', {
-          outdatedDeps: newOutdatedDeps,
-        })
-        resolve(newOutdatedDeps)
-      }
+      const newOutdatedDeps = tryParseJson<OutdatedDeps>(stdout)
+      devtoolsEventClient.emit('outdated-deps-read', {
+        outdatedDeps: newOutdatedDeps,
+      })
+      resolve(newOutdatedDeps)
     })
   })
 }
