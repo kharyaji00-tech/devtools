@@ -460,7 +460,7 @@ export const PluginWorkspace = (props: {
 
     const move = (moveEvent: PointerEvent) => {
       latest = { x: moveEvent.clientX, y: moveEvent.clientY }
-      if (!dragging) return
+      if (!dragging || held()?.tabId !== tabId) return
       setPreviewAt(latest)
       setDropTarget(targetAt(localPoint(moveEvent)))
     }
@@ -468,7 +468,7 @@ export const PluginWorkspace = (props: {
       window.clearTimeout(holdTimer)
       document.removeEventListener('pointermove', move)
       document.removeEventListener('pointerup', up)
-      if (dragging) commitDrop(dropTarget(), tabId)
+      if (dragging && held()?.tabId === tabId) commitDrop(dropTarget(), tabId)
       clearDrag()
     }
     document.addEventListener('pointermove', move)
