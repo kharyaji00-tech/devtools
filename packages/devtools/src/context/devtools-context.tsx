@@ -2,6 +2,7 @@ import { createComponent, createContext, createEffect } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
 import { getDefaultActivePlugins } from '../utils/get-default-active-plugins'
 import { flattenTabs, repairLayout, singleGroup } from '../utils/layout-tree'
+import { migrateHotkeyModifiers } from '../utils/hotkey'
 import { tryParseJson } from '../utils/sanitize'
 import {
   TANSTACK_DEVTOOLS_SETTINGS,
@@ -117,6 +118,18 @@ interface ContextProps {
 const getSettings = () => {
   const settingsString = getStorageItem(TANSTACK_DEVTOOLS_SETTINGS)
   const settings = tryParseJson<DevtoolsStore['settings']>(settingsString)
+  if (settings) {
+    // Older builds persisted the literal `Control` (and toggling `CtrlOrMeta`
+    // on top of it left a doubled `['CtrlOrMeta','Control','~']`). The Settings
+    // UI can only represent the `CtrlOrMeta` token, so collapse the literals
+    // onto it on load; see `migrateHotkeyModifiers`.
+    if (Array.isArray(settings.openHotkey)) {
+      settings.openHotkey = migrateHotkeyModifiers(settings.openHotkey)
+    }
+    if (Array.isArray(settings.inspectHotkey)) {
+      settings.inspectHotkey = migrateHotkeyModifiers(settings.inspectHotkey)
+    }
+  }
   return {
     ...settings,
   }

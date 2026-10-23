@@ -2,11 +2,56 @@ import { describe, expect, it } from 'vitest'
 import {
   getHotkeyPermutations,
   isHotkeyCombinationPressed,
+  migrateHotkeyModifiers,
   normalizeHotkey,
 } from './hotkey'
 import type { KeyboardKey } from '../context/devtools-store'
 
 describe('hotkey utilities', () => {
+  describe('migrateHotkeyModifiers', () => {
+    it('rewrites a legacy literal Control to the CtrlOrMeta token', () => {
+      const hotkey: Array<KeyboardKey> = ['Control', '~']
+      expect(migrateHotkeyModifiers(hotkey)).toEqual(['CtrlOrMeta', '~'])
+    })
+
+    it('rewrites a legacy literal Meta to the CtrlOrMeta token', () => {
+      const hotkey: Array<KeyboardKey> = ['Meta', '~']
+      expect(migrateHotkeyModifiers(hotkey)).toEqual(['CtrlOrMeta', '~'])
+    })
+
+    it('leaves a hotkey that already uses CtrlOrMeta untouched', () => {
+      const hotkey: Array<KeyboardKey> = ['CtrlOrMeta', '~']
+      expect(migrateHotkeyModifiers(hotkey)).toEqual(['CtrlOrMeta', '~'])
+    })
+
+    it('leaves a hotkey with no literal Control/Meta untouched', () => {
+      const hotkey: Array<KeyboardKey> = ['Shift', 'A']
+      expect(migrateHotkeyModifiers(hotkey)).toEqual(['Shift', 'A'])
+    })
+
+    it('collapses a doubled CtrlOrMeta+Control combo into a single CtrlOrMeta', () => {
+      // Produced by the bug when toggling CtrlOrMeta on top of the legacy
+      // ['Control', '~'] default.
+      const hotkey: Array<KeyboardKey> = ['CtrlOrMeta', 'Control', '~']
+      expect(migrateHotkeyModifiers(hotkey)).toEqual(['CtrlOrMeta', '~'])
+    })
+
+    it('collapses both Control and Meta into one CtrlOrMeta', () => {
+      const hotkey: Array<KeyboardKey> = ['Meta', 'Control', 'X']
+      expect(migrateHotkeyModifiers(hotkey)).toEqual(['CtrlOrMeta', 'X'])
+    })
+
+    it('preserves other modifiers and the key when collapsing', () => {
+      const hotkey: Array<KeyboardKey> = ['Control', 'Alt', 'B']
+      expect(migrateHotkeyModifiers(hotkey)).toEqual(['CtrlOrMeta', 'Alt', 'B'])
+    })
+
+    it('handles an empty hotkey array', () => {
+      const hotkey: Array<KeyboardKey> = []
+      expect(migrateHotkeyModifiers(hotkey)).toEqual([])
+    })
+  })
+
   describe('normalizeHotkey', () => {
     it('should return unchanged array when CtrlOrMeta is not present', () => {
       const hotkey: Array<KeyboardKey> = ['Shift', 'A']
