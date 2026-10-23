@@ -150,6 +150,31 @@ describe('JsonTree', () => {
       const el = renderTree(null)
       expect(el.textContent).toContain('null')
     })
+
+    it('renders the key label for a null-valued object property', () => {
+      const el = renderTree({ a: null })
+      expect(el.textContent).toContain('"a": null')
+    })
+
+    it('renders the key label for a nested null-valued object property', () => {
+      const el = renderTree({ e: { f: null } }, { defaultExpansionDepth: 2 })
+      expect(el.textContent).toContain('"f": null')
+    })
+
+    it('does not duplicate the key label for null-valued properties', () => {
+      const el = renderTree({ a: null })
+      const properties = el.querySelectorAll('[data-tsd-syntax="property"]')
+      const aKeys = [...properties].filter((node) =>
+        String(node.textContent).includes('"a"'),
+      )
+      expect(aKeys.length).toBe(1)
+    })
+
+    it('does not render a key label for null array items', () => {
+      const el = renderTree([null, 1])
+      const properties = el.querySelectorAll('[data-tsd-syntax="property"]')
+      expect(properties.length).toBe(0)
+    })
   })
 
   describe('undefined', () => {
