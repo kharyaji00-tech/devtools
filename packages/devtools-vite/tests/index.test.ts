@@ -44,6 +44,8 @@ function createMockServer(
     },
     httpServer: options.httpServer ?? {
       on: vi.fn(),
+      prependListener: vi.fn(),
+      removeListener: vi.fn(),
       address: vi.fn().mockReturnValue({ port: 5173 }),
     },
     middlewares: {
@@ -198,6 +200,8 @@ describe('devtools plugin', () => {
 
       const mockHttpServer = {
         on: vi.fn(),
+        prependListener: vi.fn(),
+        removeListener: vi.fn(),
         address: vi.fn().mockReturnValue({ port: 5173 }),
         listenerCount: vi.fn().mockReturnValue(0),
       }
@@ -327,6 +331,87 @@ describe('devtools plugin', () => {
         'node_modules/@tanstack/event-bus/dist/client.js',
       )
       expect(result).toContain('"localhost"')
+    })
+  })
+
+  describe('configureServer - http server close / restart cleanup', () => {
+    const originalNodeEnv = process.env.NODE_ENV
+
+    beforeEach(() => {
+      // Force the bus to actually start so it sets the process-wide globals
+      process.env.NODE_ENV = 'development'
+      globalThis.__TANSTACK_DEVTOOLS_SERVER__ = null
+      globalThis.__TANSTACK_DEVTOOLS_WSS_SERVER__ = null
+    })
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalNodeEnv
+      globalThis.__TANSTACK_DEVTOOLS_SERVER__ = null
+      globalThis.__TANSTACK_DEVTOOLS_WSS_SERVER__ = null
+    })
+
+    it('registers a close handler on the http server that stops the bus and clears the globals (HTTPS/external mode)', async () => {
+      const onHandlers = new Map<string, Array<(...args: Array<any>) => void>>()
+      const mockHttpServer = {
+        on: vi.fn((event: string, listener: (...args: Array<any>) => void) => {
+          let handlers = onHandlers.get(event)
+          if (!handlers) {
+            handlers = []
+            onHandlers.set(event, handlers)
+          }
+          handlers.push(listener)
+          return mockHttpServer
+        }),
+        prependListener: vi.fn(
+          (event: string, listener: (...args: Array<any>) => void) => {
+            let handlers = onHandlers.get(event)
+            if (!handlers) {
+              handlers = []
+              onHandlers.set(event, handlers)
+            }
+            handlers.unshift(listener)
+            return mockHttpServer
+          },
+        ),
+        removeListener: vi.fn(),
+        address: vi.fn().mockReturnValue({ port: 5173 }),
+      }
+
+      const plugins = devtools({
+        eventBusConfig: { enabled: true, port: 4206 },
+      })
+      const customServerPlugin = findPlugin(
+        plugins,
+        '@tanstack/devtools:custom-server',
+      )!
+      const server = createMockServer({
+        https: { key: 'fake-key', cert: 'fake-cert' },
+        host: 'localhost',
+        port: 5173,
+        httpServer: mockHttpServer,
+      })
+
+      const configureServer = customServerPlugin.configureServer as (
+        server: any,
+      ) => Promise<void>
+      await configureServer(server)
+
+      // External/HTTPS mode: the bus attaches to the httpServer and sets the
+      // process-wide WSS global (the state that must be cleared on restart).
+      expect(globalThis.__TANSTACK_DEVTOOLS_WSS_SERVER__).not.toBeNull()
+      expect(onHandlers.has('close')).toBe(true)
+
+      // Simulate the Vite server 'close' (a config-triggered restart tears
+      // down the old server in-process).
+      const closeHandlers = onHandlers.get('close')!
+      expect(closeHandlers.length).toBeGreaterThanOrEqual(1)
+      for (const handler of closeHandlers) handler()
+
+      // The close handler must call bus.stop(), which clears the stale
+      // globals so a subsequent in-process restart re-attaches handlers to
+      // the new server instead of adopting the dead one.
+      expect(globalThis.__TANSTACK_DEVTOOLS_WSS_SERVER__).toBeNull()
+      expect(globalThis.__TANSTACK_DEVTOOLS_SERVER__).toBeNull()
     })
   })
 

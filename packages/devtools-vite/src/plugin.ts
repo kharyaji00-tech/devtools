@@ -128,6 +128,14 @@ export const devtools = (args?: TanStackDevtoolsViteConfig): Array<Plugin> => {
           })
           // start() now handles EADDRINUSE and returns the actual port
           devtoolsPort = await bus.start()
+          // Stop the event bus when Vite's HTTP server closes so the
+          // process-wide server globals are cleared. Without this, an
+          // in-process Vite restart (e.g. editing vite.config.ts) re-runs
+          // `configureServer` and a new `ServerEventBus` would adopt the
+          // stale globals, skipping handler attachment to the new server.
+          // This is critical in HTTPS mode, where the bus piggybacks on
+          // Vite's server.
+          server.httpServer?.on('close', () => bus.stop())
           if ((server as any).environments) {
             const teardownBridge = wireRuntimeBridgeChannels(
               server as unknown as Parameters<

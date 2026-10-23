@@ -27,6 +27,18 @@ declare global {
  */
 export interface HttpServerLike {
   on: (event: string, listener: (...args: Array<any>) => void) => this
+  /**
+   * Prepend a listener so external-server handlers (SSE/POST request and WS
+   * upgrade) run BEFORE any host server's own handlers (e.g. Vite's HMR or
+   * SPA fallback). This matters after an in-process Vite restart, where Vite
+   * re-wires its own request/upgrade handlers before re-running
+   * `configureServer`; appending would leave our handlers running last,
+   * letting Vite intercept (and destroy) devtools upgrade sockets.
+   */
+  prependListener: (
+    event: string,
+    listener: (...args: Array<any>) => void,
+  ) => this
   removeListener: (
     event: string,
     listener: (...args: Array<any>) => void,
@@ -205,7 +217,17 @@ export class ServerEventBus {
         resolve(this.#port)
         return
       }
-      if (this.#server || this.#wssServer) {
+      // The "already running" guard exists to keep the *standalone* server
+      // alive across HMR-driven module re-evaluations: a fresh `ServerEventBus`
+      // adopts the still-listening server from the process-wide globals and
+      // reuses it instead of starting a duplicate. That reuse is only safe for
+      // a server we own (standalone mode) — when piggybacking on an external
+      // server (e.g. Vite's HTTPS server), that external server may have been
+      // torn down and recreated on a Vite restart, in which case the stale
+      // globals must NOT short-circuit (re)attaching handlers to the current
+      // server. External-server mode therefore always runs the attach branch.
+      const isStandalone = !this.#externalServer
+      if (isStandalone && (this.#server || this.#wssServer)) {
         // console.warn('Server is already running')
         resolve(this.#port)
         return
@@ -280,8 +302,14 @@ export class ServerEventBus {
           }
         }
 
-        this.#externalServer.on('request', this.#externalRequestHandler)
-        this.#externalServer.on('upgrade', this.#externalUpgradeHandler)
+        this.#externalServer.prependListener(
+          'request',
+          this.#externalRequestHandler,
+        )
+        this.#externalServer.prependListener(
+          'upgrade',
+          this.#externalUpgradeHandler,
+        )
 
         // Resolve port from the external server's address
         const address = this.#externalServer.address()
@@ -379,6 +407,12 @@ export class ServerEventBus {
     this.#server = null
     this.#wssServer = null
     this.#externalServer = null
+    // Clear the process-wide globals so a subsequent `ServerEventBus`
+    // instantiation (e.g. Vite re-running `configureServer` on an in-process
+    // restart) starts from a clean slate and (re)attaches its handlers to the
+    // current server rather than adopting a now-dead one.
+    globalThis.__TANSTACK_DEVTOOLS_SERVER__ = null
+    globalThis.__TANSTACK_DEVTOOLS_WSS_SERVER__ = null
     this.#eventTarget.removeEventListener(
       'tanstack-dispatch-event',
       this.#dispatcher,
