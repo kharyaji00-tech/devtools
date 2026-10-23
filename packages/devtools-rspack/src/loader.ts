@@ -165,8 +165,16 @@ export default function tanstackDevtoolsLoader(
     config?: TanStackDevtoolsConfig
   }
   const target = String(this._compiler?.options?.target ?? 'web')
+  // Resolve the pipeline mode from the loader context, then the compiler
+  // option, then 'production'. rspack leaves `loaderContext.mode` and
+  // `compiler.options.mode` undefined when the config omits `mode` — a case
+  // rspack itself treats as production (`production = mode === 'production' ||
+  // !mode`). Falling back to 'production' mirrors rspack's own semantics and the
+  // plugin's strict `compiler.options.mode === 'development'` gate, so the
+  // loader and plugin agree on production-defaulted builds.
+  const configMode = this._compiler?.options?.mode
   return runPipeline(source, this.resourcePath, {
-    mode: this.mode ?? 'development',
+    mode: this.mode ?? configMode ?? 'production',
     config: opts.config ?? {},
     connection: getDevtoolsConnection(),
     devServer: getDevServerOrigin() ?? undefined,
