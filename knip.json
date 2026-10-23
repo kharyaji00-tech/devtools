@@ -8,7 +8,7 @@
       "entry": ["scripts/generate-docs.ts", "scripts/verify-links.ts"]
     },
     "packages/devtools-a11y": {
-      "ignoreDependencies": ["solid-js", "@angular/core"]
+      "ignoreDependencies": ["react", "solid-js", "@angular/core"]
     },
 
     "packages/devtools-utils": {
