@@ -105,7 +105,6 @@ function isFunctionLike(node: Node): boolean {
 function collectJsx(node: Node, out: Array<JSXOpeningElement>) {
   if (node.type === 'JSXOpeningElement') {
     out.push(node)
-    return
   }
   if (isFunctionLike(node)) return
   forEachChild(node, (child) => collectJsx(child, out))
