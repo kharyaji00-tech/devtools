@@ -574,18 +574,20 @@ export const devtools = (args?: TanStackDevtoolsViteConfig): Array<Plugin> => {
       apply(config, { command }) {
         return config.mode === 'development' && command === 'serve'
       },
-      transform(code, id) {
-        // Only transform @tanstack packages that contain the connection placeholders
+      transform(code) {
+        // The `__TANSTACK_DEVTOOLS_*` placeholders are baked into the published
+        // event-bus client dist and appear nowhere else in user code, so their
+        // presence is the ownership check. Do NOT gate on the module id: Vite
+        // flattens pre-bundled dep ids (`.vite/deps/@tanstack_devtools-event-bus_client.js`,
+        // shared `chunk-*.js`) and resolves workspace symlinks to realpaths
+        // (`packages/event-bus/dist/.../client.js`), none of which contain the
+        // `@tanstack/` scope, so an id gate would skip the very modules that
+        // need injection (bug: placeholder left unreplaced -> silent fallback).
         const hasPlaceholder =
           code.includes('__TANSTACK_DEVTOOLS_PORT__') ||
           code.includes('__TANSTACK_DEVTOOLS_HOST__') ||
           code.includes('__TANSTACK_DEVTOOLS_PROTOCOL__')
         if (!hasPlaceholder) return
-        if (
-          !id.includes('@tanstack/devtools') &&
-          !id.includes('@tanstack/event-bus')
-        )
-          return
 
         // Replace placeholders with actual values (or fallback defaults)
         const portValue = devtoolsPort ?? 4206

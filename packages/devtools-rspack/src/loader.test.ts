@@ -100,4 +100,42 @@ describe('runPipeline', () => {
     expect(out).toContain('4206')
     expect(out).not.toContain('8080')
   })
+
+  // Regression coverage for the module ids the old id gate rejected. The
+  // `__TANSTACK_DEVTOOLS_*` placeholders are baked into the published event-bus
+  // client dist and appear nowhere else in user code, so their presence is the
+  // ownership check. An id gate (`posixId.includes('@tanstack/...')`) silently
+  // skipped these ids, leaving the placeholders unreplaced. The Windows case
+  // also confirms no `\` -> `/` normalization (the removed `posixId`) is needed.
+  it.each([
+    ['a bundled shared chunk id', '/proj/node_modules/.cache/chunk-ABCD123.js'],
+    [
+      'a pnpm/yarn workspace realpath id',
+      '/home/user/devtools/packages/event-bus/dist/esm/client/client.js',
+    ],
+    [
+      'a Windows-style resourcePath with backslashes',
+      'C:\\proj\\packages\\event-bus\\dist\\esm\\client\\client.js',
+    ],
+  ])('replaces placeholders for %s (no id gate)', (_label, id) => {
+    const code =
+      'function getDefaultPort(c){if(typeof __TANSTACK_DEVTOOLS_PORT__!=="undefined")return __TANSTACK_DEVTOOLS_PORT__;return c}'
+    const out = runPipeline(
+      code,
+      id,
+      dev({ connection: { port: 7777, host: 'bus.local', protocol: 'https' } }),
+    )
+    expect(out).not.toContain('__TANSTACK_DEVTOOLS_PORT__')
+    expect(out).toContain('7777')
+  })
+
+  it('leaves code without placeholders untouched by the replacement step', () => {
+    const out = runPipeline(
+      'const p = 4206',
+      '/proj/node_modules/some-other-pkg/index.js',
+      dev(),
+    )
+    // No placeholders -> replacement step is a no-op; value is untouched.
+    expect(out).toContain('4206')
+  })
 })
