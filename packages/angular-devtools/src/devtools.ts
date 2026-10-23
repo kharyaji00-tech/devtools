@@ -19,9 +19,8 @@ import {
   reflectComponentType,
   runInInjectionContext,
   signal,
-  untracked,
 } from '@angular/core'
-import type { Signal } from '@angular/core'
+import type { Signal, WritableSignal } from '@angular/core'
 import type { TanStackDevtoolsPlugin } from '@tanstack/devtools'
 import type {
   TanStackDevtoolsAngularFunctionalComponent,
@@ -29,6 +28,7 @@ import type {
   TanStackDevtoolsAngularPlugin,
   TanStackDevtoolsAngularPluginInputProps,
   TanStackDevtoolsAngularPluginRender,
+  TanStackDevtoolsAngularPluginRenderFn,
 } from './types'
 
 @Component({
@@ -53,7 +53,14 @@ export class TanStackDevtools {
     input<TanStackDevtoolsAngularInit['eventBusConfig']>()
 
   readonly devtools = signal<TanStackDevtoolsCore | null>(null)
-  #componentRefs = signal<Array<ComponentRef<any>>>([])
+  #mountedByContainer = new Map<
+    HTMLElement,
+    {
+      ref: ComponentRef<any> | null
+      inputs: WritableSignal<Record<string, unknown>>
+      cancelled: boolean
+    }
+  >()
 
   readonly #appRef = inject(ApplicationRef)
   readonly #injector = inject(EnvironmentInjector)
@@ -175,39 +182,76 @@ export class TanStackDevtools {
       | (() => TanStackDevtoolsAngularPluginInputProps)
       | TanStackDevtoolsAngularPluginInputProps,
   ) {
-    const result = await renderFn()
-    if (!result) return
+    const desired = this.#resolveInputs(inputs)
 
-    const signalInputs = this.#normalizeInputs(inputs)
+    // The core re-invokes `render` whenever the theme or the panel's open state
+    // changes, reusing the same mount node. If a mount already lives (or is in
+    // flight) for this container, just feed it the new inputs — never start a
+    // second mount — matching the Svelte/Vue/React adapters' keyed replace-in-
+    // place contract.
+    const existing = this.#mountedByContainer.get(container)
+    if (existing) {
+      existing.inputs.set(desired)
+      return
+    }
+
+    // Reserve the slot synchronously, before the awaited dynamic import, so a
+    // concurrent re-render (the core fires them in quick succession) updates
+    // this signal instead of racing into a second mount.
+    const entry: {
+      ref: ComponentRef<any> | null
+      inputs: WritableSignal<Record<string, unknown>>
+      cancelled: boolean
+    } = { ref: null, inputs: signal(desired), cancelled: false }
+    this.#mountedByContainer.set(container, entry)
+
+    let result: TanStackDevtoolsAngularPluginRenderFn
+    try {
+      result = await renderFn()
+    } catch (error) {
+      this.#dropIfEntry(container, entry)
+      throw error
+    }
+    if (!result) {
+      this.#dropIfEntry(container, entry)
+      return
+    }
+
+    // Torn down while the import was in flight (e.g. the host's `plugins`
+    // input changed); nothing to attach.
+    if (entry.cancelled) return
+
+    const accessor = () => entry.inputs()
 
     if (isClassConstructor(result) || 'default' in result) {
       const instance = 'default' in result ? result.default : result
-      if (!instance) return
+      if (!instance) {
+        this.#dropIfEntry(container, entry)
+        return
+      }
       const componentRef = createComponent(instance, {
         environmentInjector: this.#injector,
         hostElement: container,
       })
-      this.#attachComponentRef(componentRef, signalInputs)
+      this.#attachComponentRef(componentRef, accessor)
+      entry.ref = componentRef
     } else {
-      this.#renderFunctionalComponent(result, container, signalInputs)
+      const componentRef = createComponent(TanStackPluginView, {
+        hostElement: container,
+        environmentInjector: this.#injector,
+        elementInjector: this.#viewInjector,
+      })
+      this.#attachComponentRef(componentRef, accessor)
+      entry.ref = componentRef
+      const fn = result as TanStackDevtoolsAngularFunctionalComponent
+      const unmount = runInInjectionContext(this.#injector, () =>
+        fn(
+          accessor as () => TanStackDevtoolsAngularPluginInputProps,
+          componentRef.location.nativeElement,
+        ),
+      )
+      componentRef.onDestroy(() => unmount())
     }
-  }
-
-  #renderFunctionalComponent(
-    fn: TanStackDevtoolsAngularFunctionalComponent,
-    container: HTMLElement,
-    inputs: () => TanStackDevtoolsAngularPluginInputProps,
-  ) {
-    const component = createComponent(TanStackPluginView, {
-      hostElement: container,
-      environmentInjector: this.#injector,
-      elementInjector: this.#viewInjector,
-    })
-    this.#attachComponentRef(component, inputs)
-    const unmount = runInInjectionContext(this.#injector, () =>
-      fn(inputs, component.location.nativeElement),
-    )
-    component.onDestroy(() => unmount())
   }
 
   private renderComponent(
@@ -215,12 +259,35 @@ export class TanStackDevtools {
     container: HTMLElement,
     inputs: (() => Record<string, unknown>) | Record<string, unknown>,
   ) {
+    const desired = this.#resolveInputs(inputs)
+
+    // See `#renderComponentFunction`: reuse the existing mount for the
+    // container and update its inputs, instead of stacking a new one.
+    const existing = this.#mountedByContainer.get(container)
+    if (existing) {
+      existing.inputs.set(desired)
+      return
+    }
+
+    const entry: {
+      ref: ComponentRef<any> | null
+      inputs: WritableSignal<Record<string, unknown>>
+      cancelled: boolean
+    } = { ref: null, inputs: signal(desired), cancelled: false }
     const componentRef = createComponent(component, {
       environmentInjector: this.#injector,
       elementInjector: this.#viewInjector,
       hostElement: container,
     })
-    this.#attachComponentRef(componentRef, this.#normalizeInputs(inputs))
+    this.#attachComponentRef(componentRef, () => entry.inputs())
+    entry.ref = componentRef
+    this.#mountedByContainer.set(container, entry)
+  }
+
+  #resolveInputs(
+    inputs: Signal<Record<string, unknown>> | (() => Record<string, unknown>) | Record<string, unknown>,
+  ): Record<string, unknown> {
+    return this.#normalizeInputs(inputs)()
   }
 
   #attachComponentRef(
@@ -248,30 +315,38 @@ export class TanStackDevtools {
 
     this.#appRef.attachView(componentRef.hostView)
     componentRef.changeDetectorRef.detectChanges()
-    this.#componentRefs.update((refs) => [...refs, componentRef])
+  }
+
+  // Drop a reserved/in-flight entry only if it still owns the slot, so a later
+  // mount for the same container is not clobbered by a stale async resolution.
+  #dropIfEntry(container: HTMLElement, entry: { ref: ComponentRef<any> | null }) {
+    if (this.#mountedByContainer.get(container) === entry) {
+      this.#mountedByContainer.delete(container)
+    }
+  }
+
+  #destroyComponentRef(componentRef: ComponentRef<any> | null | undefined) {
+    if (!componentRef) return
+    this.#appRef.detachView(componentRef.hostView)
+    componentRef.destroy()
   }
 
   #destroyComponentsInContainer(containerId: string) {
-    this.#componentRefs.update((refs) =>
-      refs.filter((ref) => {
-        const el = ref.location.nativeElement as HTMLElement
-        if (el.id === containerId) {
-          ref.destroy()
-          this.#appRef.detachView(ref.hostView)
-          return false
-        }
-        return true
-      }),
-    )
+    for (const [container, entry] of this.#mountedByContainer) {
+      if (container.id === containerId) {
+        entry.cancelled = true
+        this.#destroyComponentRef(entry.ref)
+        this.#mountedByContainer.delete(container)
+      }
+    }
   }
 
   #destroyAllComponents() {
-    const refs = untracked(this.#componentRefs)
-    for (const ref of refs) {
-      this.#appRef.detachView(ref.hostView)
-      ref.destroy()
+    for (const entry of this.#mountedByContainer.values()) {
+      entry.cancelled = true
+      this.#destroyComponentRef(entry.ref)
     }
-    this.#componentRefs.set([])
+    this.#mountedByContainer.clear()
   }
 }
 
