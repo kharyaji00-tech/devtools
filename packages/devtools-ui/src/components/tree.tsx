@@ -58,8 +58,8 @@ function JsonValue(props: {
       class={styles().tree.valueContainer(props.isRoot ?? false)}
     >
       {props.keyName &&
-        typeof props.value !== 'object' &&
-        !Array.isArray(props.value) && (
+        (props.value === null ||
+          (typeof props.value !== 'object' && !Array.isArray(props.value))) && (
           <span data-tsd-syntax="property" class={styles().tree.valueKey}>
             &quot;{props.keyName}&quot;:{' '}
           </span>
