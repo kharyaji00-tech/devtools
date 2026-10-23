@@ -243,13 +243,15 @@ export class EventClient<TEventMap extends Record<string, any>> {
   ) {
     const withEventTarget = options?.withEventTarget ?? false
     const eventName = `${this.#pluginId}:${eventSuffix}` as const
+    let internalHandler: ((e: Event) => void) | null = null
     if (withEventTarget) {
       if (!this.#internalEventTarget) {
         this.#internalEventTarget = new EventTarget()
       }
-      this.#internalEventTarget.addEventListener(eventName, (e) => {
+      internalHandler = (e: Event) => {
         cb((e as CustomEvent).detail)
-      })
+      }
+      this.#internalEventTarget.addEventListener(eventName, internalHandler)
     }
     if (!this.#enabled) {
       this.debugLog(
@@ -265,8 +267,11 @@ export class EventClient<TEventMap extends Record<string, any>> {
     this.#eventTarget().addEventListener(eventName, handler)
     this.debugLog('Registered event to bus', eventName)
     return () => {
-      if (withEventTarget) {
-        this.#internalEventTarget?.removeEventListener(eventName, handler)
+      if (withEventTarget && internalHandler) {
+        this.#internalEventTarget?.removeEventListener(
+          eventName,
+          internalHandler,
+        )
       }
       this.#eventTarget().removeEventListener(eventName, handler)
     }

@@ -309,6 +309,55 @@ describe('EventClient', () => {
     })
   })
 
+  describe('unsubscribing withEventTarget listeners', () => {
+    it('stops calling the callback after cleanup when subscribed with withEventTarget', () => {
+      const client = new EventClient({
+        debug: false,
+        pluginId: 'test-unsub-internal',
+      })
+      const cb = vi.fn()
+      const cleanup = client.on('event', cb, {
+        withEventTarget: true,
+      })
+
+      // Before cleanup the listener delivers events.
+      client.emit('event', { foo: 'bar' })
+      expect(cb).toHaveBeenCalled()
+      cb.mockClear()
+
+      // After cleanup the leaked internal listener would keep firing on every
+      // subsequent emit (the bug); it should be removed and stay silent.
+      cleanup()
+      client.emit('event', { foo: 'bar' })
+      client.emit('event', { foo: 'baz' })
+      expect(cb).not.toHaveBeenCalled()
+    })
+
+    it('does not affect other withEventTarget subscriptions for the same event', () => {
+      const client = new EventClient({
+        debug: false,
+        pluginId: 'test-iso',
+      })
+      const cb1 = vi.fn()
+      const cb2 = vi.fn()
+      const cleanup1 = client.on('event', cb1, {
+        withEventTarget: true,
+      })
+      client.on('event', cb2, {
+        withEventTarget: true,
+      })
+
+      cb1.mockClear()
+      cb2.mockClear()
+      cleanup1()
+      client.emit('event', { foo: 'bar' })
+
+      // Unsubscribing cb1 must not tear down cb2's listeners.
+      expect(cb1).not.toHaveBeenCalled()
+      expect(cb2).toHaveBeenCalled()
+    })
+  })
+
   describe('connecting behavior', () => {
     it('should only attempt connection once when #connecting flag is set', async () => {
       bus.stop()
