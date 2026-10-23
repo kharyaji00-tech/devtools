@@ -45,6 +45,14 @@ module.exports = async () => {
 > builds actually run in production mode (e.g. `rspack build --mode=production`
 > or `mode: 'production'` in the config) — unlike some bundlers, `rspack build`
 > does not force production mode on its own.
+>
+> When the config **omits `mode` entirely** (rspack JS-API usage), rspack leaves
+> `mode` `undefined` while still applying production-like optimization defaults —
+> a case rspack itself treats as production. This plugin follows that same
+> convention: an unset `mode` is resolved to `'production'`, so dev-only
+> instrumentation (`data-tsd-source` attributes, enhanced logs, the console-pipe
+> IIFE, the runtime bridge) is not injected and `removeDevtoolsOnBuild` still
+> runs. Explicit `mode: 'development'` is required for dev features.
 
 ## Parity caveats
 
