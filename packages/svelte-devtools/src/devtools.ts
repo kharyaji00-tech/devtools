@@ -55,6 +55,7 @@ export class TanStackDevtoolsSvelteAdapter {
     plugin: TanStackDevtoolsSveltePlugin,
   ): TanStackDevtoolsPlugin {
     let panelContainer: HTMLElement | undefined
+    let nameContainer: HTMLElement | undefined
 
     return {
       id: plugin.id,
@@ -63,6 +64,10 @@ export class TanStackDevtoolsSvelteAdapter {
         typeof plugin.name === 'string'
           ? plugin.name
           : (el, props) => {
+              if (nameContainer && nameContainer !== el) {
+                this.destroyComponentInContainer(nameContainer)
+              }
+              nameContainer = el
               this.renderComponent(plugin.name as Component<any>, el, {
                 ...props,
                 ...(plugin.props ?? {}),
@@ -82,6 +87,10 @@ export class TanStackDevtoolsSvelteAdapter {
         if (panelContainer) {
           this.destroyComponentInContainer(panelContainer)
           panelContainer = undefined
+        }
+        if (nameContainer) {
+          this.destroyComponentInContainer(nameContainer)
+          nameContainer = undefined
         }
       },
     }
