@@ -21,7 +21,11 @@ vi.mock('@tanstack/devtools', () => {
       setConfig = vi.fn()
     },
   )
-  return { TanStackDevtoolsCore }
+  return {
+    TanStackDevtoolsCore,
+    PLUGIN_CONTAINER_ID: 'plugin-container',
+    PLUGIN_TITLE_CONTAINER_ID: 'plugin-title-container',
+  }
 })
 
 const CoreMock = vi.mocked(TanStackDevtoolsCore)
