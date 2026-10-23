@@ -919,6 +919,71 @@ function Comp() {
     })
   })
 
+  describe('attribute-position JSX', () => {
+    // JSX used as attribute/prop values (e.g. `icon={<Bar />}`) is lexically
+    // owned by the current function and must be collected/annotated just like
+    // JSX in child expression containers. Regression test for the early
+    // `return` in `collectJsx` that pruned traversal at JSXOpeningElement.
+
+    const countAttrs = (s: string | undefined) =>
+      ((s || '').match(/data-tsd-source=/g) || []).length
+
+    it('annotates JSX nested in an attribute value', () => {
+      const output = addSourceToJsx(
+        `function Test(props) { return <Foo icon={<Bar />} /> }`,
+        'test.jsx',
+      )!.code
+      expect(countAttrs(output)).toBe(2)
+      expect(output).toContain('data-tsd-source="test.jsx:1:31"')
+      expect(output).toContain('data-tsd-source="test.jsx:1:42"')
+    })
+
+    it('annotates deeply nested attribute-position JSX', () => {
+      const output = addSourceToJsx(
+        `function Test(props) { return <Foo icon={<Bar x={<Baz />} />} /> }`,
+        'test.jsx',
+      )!.code
+      expect(countAttrs(output)).toBe(3)
+      expect(output).toContain('data-tsd-source="test.jsx:1:31"')
+      expect(output).toContain('data-tsd-source="test.jsx:1:42"')
+      expect(output).toContain('data-tsd-source="test.jsx:1:50"')
+    })
+
+    it('does not double-insert when an inner element is already annotated', () => {
+      const output = addSourceToJsx(
+        `function Test(props) { return <Foo icon={<Bar data-tsd-source="x:1:1" />} /> }`,
+        'test.jsx',
+      )!.code
+      // Bar keeps its single pre-existing attribute (not duplicated) and Foo
+      // still gets annotated exactly once.
+      expect(countAttrs(output)).toBe(2)
+      expect(output).toContain('data-tsd-source="x:1:1"')
+      expect(output).toContain('data-tsd-source="test.jsx:1:31"')
+      expect(output).not.toContain('data-tsd-source="test.jsx:1:42"')
+    })
+
+    it('respects the function-like boundary for attribute-position JSX', () => {
+      // Attribute-position JSX inside an inner function is owned by that
+      // inner function (annotated in its own context), while the outer
+      // function must not annotate it with the outer propsName. The outer
+      // <Inner {...props} /> and the inner <span {...innerProps} /> (both
+      // spread props) stay unannotated; the inner's <div> gets one attribute.
+      const output = addSourceToJsx(
+        `
+const Outer = (props) => {
+  const Inner = (innerProps) => <div icon={<span {...innerProps} />} />
+  return <Inner {...props} />
+}
+        `,
+        'nested.jsx',
+      )!.code
+      expect(countAttrs(output)).toBe(1)
+      expect(output).toContain('data-tsd-source="nested.jsx:3:33"')
+      expect(output).not.toContain('<span {...innerProps} } data-tsd-source')
+      expect(output).not.toContain('<Inner {...props} } data-tsd-source')
+    })
+  })
+
   describe('nested function boundaries', () => {
     it('does not annotate inner-function JSX with the outer propsName', () => {
       // The inner arrow forwards its own innerProps via spread. The outer
