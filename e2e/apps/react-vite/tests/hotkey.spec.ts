@@ -1,12 +1,13 @@
 import { test, expect } from '@playwright/test'
 import { DevtoolsPage } from '@tanstack/devtools-e2e'
 
-// The shell's open hotkey is ["Control", "~"] and it is matched against
-// `KeyboardEvent.key` via @solid-primitives/keyboard. Playwright's
-// `keyboard.press('~')` would require Shift (which adds an extra key and breaks
-// the match), so we dispatch the exact keydown events the shell listens for:
-// Control first (so the modifier becomes the first held key), then "~" with
-// ctrlKey set. This mirrors a real Ctrl+~ press without the Shift artifact.
+// The shell's open hotkey is ["CtrlOrMeta", "~"] (expanded at match time to
+// both Control+~ and Meta+~) and it is matched against `KeyboardEvent.key` via
+// @solid-primitives/keyboard. Playwright's `keyboard.press('~')` would require
+// Shift (which adds an extra key and breaks the match), so we dispatch the
+// exact keydown events the shell listens for: Control first (so the modifier
+// becomes the first held key), then "~" with ctrlKey set. This mirrors a real
+// Ctrl+~ press without the Shift artifact.
 async function pressOpenHotkey(page: import('@playwright/test').Page) {
   await page.evaluate(() => {
     window.dispatchEvent(

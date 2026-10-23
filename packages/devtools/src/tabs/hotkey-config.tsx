@@ -3,6 +3,7 @@ import { Button, Input } from '@tanstack/devtools-ui'
 
 import { uppercaseFirstLetter } from '../utils/sanitize'
 import { createStyles } from '../styles/use-styles'
+import { keyboardModifiers } from '../context/devtools-store'
 import type { KeyboardKey } from '../context/devtools-store'
 
 interface HotkeyConfigProps {
@@ -29,18 +30,28 @@ export const HotkeyConfig = (props: HotkeyConfigProps) => {
       props.onHotkeyChange(props.hotkey.filter((key) => key !== modifier))
     } else {
       const existingModifiers = props.hotkey.filter((key) =>
-        props.modifiers.includes(key as any),
+        keyboardModifiers.includes(key as any),
       )
       const otherKeys = props.hotkey.filter(
-        (key) => !props.modifiers.includes(key as any),
+        (key) => !keyboardModifiers.includes(key as any),
       )
-      props.onHotkeyChange([...existingModifiers, modifier, ...otherKeys])
+      // `CtrlOrMeta` subsumes the literal `Control`/`Meta` it expands to, so
+      // turning it on over a stored literal would double the modifier (e.g.
+      // `['Control', '~']` -> `['Control', 'CtrlOrMeta', '~']`). Drop the
+      // literals so the abstract toggle is the single source of truth.
+      const mergedModifiers =
+        modifier === 'CtrlOrMeta'
+          ? existingModifiers.filter(
+              (key) => key !== 'Control' && key !== 'Meta',
+            )
+          : existingModifiers
+      props.onHotkeyChange([...mergedModifiers, modifier, ...otherKeys])
     }
   }
 
   const getNonModifierValue = () => {
     return props.hotkey
-      .filter((key) => !props.modifiers.includes(key as any))
+      .filter((key) => !keyboardModifiers.includes(key as any))
       .join('+')
   }
 
@@ -56,7 +67,7 @@ export const HotkeyConfig = (props: HotkeyConfigProps) => {
     }
 
     const hotkeyModifiers = props.hotkey.filter((key) =>
-      props.modifiers.includes(key as any),
+      keyboardModifiers.includes(key as any),
     )
     const newKeys = input
       .split('+')

@@ -92,7 +92,7 @@ export type DevtoolsStore = {
     panelLocation: 'top' | 'bottom'
     /**
      * The hotkey to open the dev tools
-     * @default ["Control", "~"]
+     * @default ["CtrlOrMeta", "~"]
      */
     openHotkey: Array<KeyboardKey>
     /**
@@ -192,7 +192,7 @@ export const initialState: DevtoolsStore = {
     triggerCorner: undefined,
     triggerEdge: undefined,
     panelLocation: 'bottom',
-    openHotkey: ['Control', '~'],
+    openHotkey: ['CtrlOrMeta', '~'],
     inspectHotkey: ['Shift', 'Alt', 'CtrlOrMeta'],
     requireUrlFlag: false,
     urlFlag: 'tanstack-devtools',

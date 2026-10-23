@@ -3,6 +3,40 @@ import { getAllPermutations } from './sanitize'
 
 import type { KeyboardKey, ModifierKey } from '../context/devtools-store'
 
+/**
+ * Rewrites legacy literal `Control`/`Meta` modifiers in a persisted hotkey to
+ * the UI-facing `CtrlOrMeta` token.
+ *
+ * The Settings UI's modifier toggle list is `['CtrlOrMeta', 'Alt', 'Shift']`,
+ * so a stored literal `Control` or `Meta` can neither be shown as a pressed
+ * toggle nor preserved when the key is edited — it leaks into the Key text
+ * input and is silently dropped on the next edit (see the `HotkeyConfig`
+ * classification mismatch). Defaults and toggles now only ever produce
+ * `CtrlOrMeta`, so this only needs to repair values written by older builds.
+ *
+ * `CtrlOrMeta` matches both `Control` and `Meta` key presses at match time
+ * (`normalizeHotkey` expands it), so collapsing the literals onto it preserves
+ * the shortcut's behavior while making the value representable in the UI. A
+ * stored mix such as `['CtrlOrMeta', 'Control', '~']` (left by toggling
+ * `CtrlOrMeta` on top of the legacy literal default) collapses to a single
+ * `['CtrlOrMeta', '~']`.
+ */
+export const migrateHotkeyModifiers = (
+  hotkey: Array<KeyboardKey>,
+): Array<KeyboardKey> => {
+  const hasControl = hotkey.includes('Control')
+  const hasMeta = hotkey.includes('Meta')
+  if (!hasControl && !hasMeta) return hotkey
+
+  const withoutLiteral = hotkey.filter(
+    (key) => key !== 'Control' && key !== 'Meta',
+  )
+  if (!withoutLiteral.includes('CtrlOrMeta')) {
+    withoutLiteral.unshift('CtrlOrMeta')
+  }
+  return withoutLiteral
+}
+
 /** Expands CtrlOrMeta into separate Control and Meta variants */
 export const normalizeHotkey = (
   keys: Array<KeyboardKey>,

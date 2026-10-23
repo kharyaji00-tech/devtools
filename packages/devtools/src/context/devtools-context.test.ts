@@ -2,7 +2,10 @@ import { createComponent, createEffect, createRoot, useContext } from 'solid-js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_ACTIVE_PLUGINS } from '../utils/constants'
 import { flattenTabs } from '../utils/layout-tree'
-import { TANSTACK_DEVTOOLS_STATE } from '../utils/storage'
+import {
+  TANSTACK_DEVTOOLS_SETTINGS,
+  TANSTACK_DEVTOOLS_STATE,
+} from '../utils/storage'
 import {
   DevtoolsContext,
   DevtoolsProvider,
@@ -365,6 +368,46 @@ describe('getExistingStateFromStorage - integration tests', () => {
     const state = getExistingStateFromStorage(config as any, plugins)
     expect(state.settings.theme).toBe('light')
     expect(flattenTabs(state.state.layout)).toEqual(['plugin1'])
+  })
+
+  it('migrates a stored literal Control openHotkey to CtrlOrMeta on load', () => {
+    // Older builds persisted the default as ['Control', '~']; the Settings UI
+    // can only represent the 'CtrlOrMeta' token, so it must be rewritten.
+    localStorage.setItem(
+      TANSTACK_DEVTOOLS_SETTINGS,
+      JSON.stringify({ openHotkey: ['Control', '~'] }),
+    )
+    const state = getExistingStateFromStorage(undefined, undefined)
+    expect(state.settings.openHotkey).toEqual(['CtrlOrMeta', '~'])
+  })
+
+  it('collapses a doubled CtrlOrMeta+Control openHotkey to a single CtrlOrMeta', () => {
+    // The bug left ['CtrlOrMeta', 'Control', '~'] when CtrlOrMeta was toggled
+    // over the legacy literal default; load must repair it.
+    localStorage.setItem(
+      TANSTACK_DEVTOOLS_SETTINGS,
+      JSON.stringify({ openHotkey: ['CtrlOrMeta', 'Control', '~'] }),
+    )
+    const state = getExistingStateFromStorage(undefined, undefined)
+    expect(state.settings.openHotkey).toEqual(['CtrlOrMeta', '~'])
+  })
+
+  it('migrates a literal Meta in a stored hotkey to CtrlOrMeta on load', () => {
+    localStorage.setItem(
+      TANSTACK_DEVTOOLS_SETTINGS,
+      JSON.stringify({ inspectHotkey: ['Meta', 'A'] }),
+    )
+    const state = getExistingStateFromStorage(undefined, undefined)
+    expect(state.settings.inspectHotkey).toEqual(['CtrlOrMeta', 'A'])
+  })
+
+  it('leaves a stored hotkey without literal Control/Meta untouched on load', () => {
+    localStorage.setItem(
+      TANSTACK_DEVTOOLS_SETTINGS,
+      JSON.stringify({ openHotkey: ['Shift', 'A'] }),
+    )
+    const state = getExistingStateFromStorage(undefined, undefined)
+    expect(state.settings.openHotkey).toEqual(['Shift', 'A'])
   })
 })
 
