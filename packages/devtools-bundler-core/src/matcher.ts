@@ -11,7 +11,10 @@ export const matcher = (
     if (typeof pattern === 'string') {
       return picomatch(pattern)
     } else {
-      return (s: string) => pattern.test(s)
+      const re = /[gy]/.test(pattern.flags)
+        ? new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ''))
+        : pattern
+      return (s: string) => re.test(s)
     }
   })
 
