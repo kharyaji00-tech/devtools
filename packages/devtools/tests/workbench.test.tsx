@@ -1,18 +1,18 @@
 import { createComponent } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import DevTools from '../src/devtools'
-import { DevtoolsProvider } from '../src/context/devtools-context'
-import { PiPProvider } from '../src/context/pip-context'
-import { PluginSectionComponent } from '../src/tabs/marketplace/plugin-section'
-import { flattenTabs } from '../src/utils/layout-tree'
-import { TANSTACK_DEVTOOLS_STATE } from '../src/utils/storage'
 import {
   DEVTOOLS_FONT_STYLE_ID,
   DEVTOOLS_FORCED_COLORS_STYLE_ID,
   resolveSemanticTheme,
 } from '@tanstack/devtools-ui/internal'
 import { ClientEventBus } from '@tanstack/devtools-event-bus/client'
+import DevTools from '../src/devtools'
+import { DevtoolsProvider } from '../src/context/devtools-context'
+import { PiPProvider } from '../src/context/pip-context'
+import { PluginSectionComponent } from '../src/tabs/marketplace/plugin-section'
+import { flattenTabs } from '../src/utils/layout-tree'
+import { TANSTACK_DEVTOOLS_STATE } from '../src/utils/storage'
 import {
   MAX_ACTIVE_PLUGINS,
   PANEL_CLOSE_THRESHOLD,
@@ -614,6 +614,56 @@ describe('workbench', { timeout: 30_000 }, () => {
     expect(
       JSON.parse(localStorage.getItem(TANSTACK_DEVTOOLS_STATE)!).height,
     ).toBe(attachedHeight)
+  })
+
+  it('disables panel tabbing while closed and restores authored focusability on reopen', async () => {
+    mountWorkbench([plugin('one')])
+    await Promise.resolve()
+    const handle = document.querySelector<HTMLElement>(
+      '[data-testid="tsd-resize-handle"]',
+    )!
+    const closeBtn = document.querySelector<HTMLElement>(
+      '[aria-label="Close TanStack Devtools"]',
+    )!
+    click('Close TanStack Devtools')
+    await Promise.resolve()
+    // While closed the whole panel subtree is taken out of the tab order,
+    // including the separator that is focusable when open.
+    expect(handle).toHaveAttribute('tabindex', '-1')
+    expect(closeBtn).toHaveAttribute('tabindex', '-1')
+    click('Open TanStack Devtools')
+    await Promise.resolve()
+    // On reopen authored focusability is restored exactly: the separator keeps
+    // its tabindex=0 and is focusable, and native controls return to their
+    // natural tab order (no authored tabindex).
+    expect(handle).toHaveAttribute('tabindex', '0')
+    handle.focus()
+    expect(document.activeElement).toBe(handle)
+    expect(closeBtn).not.toHaveAttribute('tabindex')
+  })
+
+  it('focuses the resize handle on mouse grab so the keyboard can take over', async () => {
+    mountWorkbench([plugin('one')], { panelLocation: 'bottom' })
+    await Promise.resolve()
+    const handle = document.querySelector<HTMLElement>(
+      '[data-testid="tsd-resize-handle"]',
+    )!
+    handle.dispatchEvent(
+      new MouseEvent('mousedown', {
+        button: 0,
+        bubbles: true,
+        cancelable: true,
+        clientY: 100,
+      }),
+    )
+    // Grabbing the handle with the mouse leaves it focused.
+    expect(document.activeElement).toBe(handle)
+    // The keyboard can resize from there without re-grabbing.
+    handle.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }),
+    )
+    expect(handle).toHaveAttribute('aria-valuenow', '410')
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
   })
 
   it('moves the theme attribute into PiP and restores the main document on close', () => {

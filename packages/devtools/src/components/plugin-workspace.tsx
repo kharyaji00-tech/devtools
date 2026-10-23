@@ -562,6 +562,7 @@ export const PluginWorkspace = (props: {
     const target = event.currentTarget
     if (target instanceof HTMLElement) {
       target.setPointerCapture(event.pointerId)
+      target.focus()
     }
     const start = handle.dir === 'row' ? event.clientX : event.clientY
     const original = layout()
