@@ -166,7 +166,11 @@ describe('devtools plugin', () => {
       expect(result).toBeUndefined()
     })
 
-    it('should return undefined for non-tanstack module IDs', () => {
+    // The placeholder presence is the ownership check: code that contains a
+    // `__TANSTACK_DEVTOOLS_*` placeholder is devtools/event-bus code that needs
+    // injection, regardless of which module id Vite assigned to it. The old id
+    // gate returned `undefined` here, leaving the placeholder unreplaced.
+    it('should transform placeholder code regardless of the module id', () => {
       const transform = connectionPlugin.transform as (
         code: string,
         id: string,
@@ -175,8 +179,45 @@ describe('devtools plugin', () => {
         'const port = __TANSTACK_DEVTOOLS_PORT__',
         'node_modules/some-other-package/index.js',
       )
-      expect(result).toBeUndefined()
+      expect(result).toBeDefined()
+      expect(result).not.toContain('__TANSTACK_DEVTOOLS_PORT__')
+      expect(result).toContain('4206')
     })
+
+    // Regression coverage for the real Vite module id shapes the old id gate
+    // rejected. Each id below lacks the `@tanstack/` scope, so a gate based on
+    // `id.includes('@tanstack/...')` would skip injection and the browser-side
+    // event-bus client would silently fall back to the placeholder defaults.
+    it.each([
+      [
+        'pre-bundled flattened dep id',
+        '/app/node_modules/.vite/deps/@tanstack_event-bus_client.js?v=4.2.0',
+      ],
+      [
+        'pre-bundled shared chunk id',
+        '/app/node_modules/.vite/deps/chunk-ABCD123.js?v=4.2.0',
+      ],
+      [
+        'pnpm/yarn workspace realpath id',
+        '/home/user/devtools/packages/event-bus/dist/esm/client/client.js',
+      ],
+    ])(
+      'replaces placeholders in the real %s',
+      (_label, id) => {
+        const transform = connectionPlugin.transform as (
+          code: string,
+          id: string,
+        ) => string | undefined
+        // Realistic bundled event-bus client code shape: the `typeof` checks on
+        // bare identifiers are exactly what survives into the published dist.
+        const code =
+          'function getDefaultPort(configPort){if(typeof __TANSTACK_DEVTOOLS_PORT__!=="undefined")return __TANSTACK_DEVTOOLS_PORT__;return configPort}'
+        const result = transform(code, id)
+        expect(result).toBeDefined()
+        expect(result).not.toContain('__TANSTACK_DEVTOOLS_PORT__')
+        expect(result).toContain('4206')
+      },
+    )
   })
 
   describe('configureServer - HTTPS detection', () => {
