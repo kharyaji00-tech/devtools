@@ -84,6 +84,35 @@ describe('ServerEventBus', () => {
       expect(globalThis.__TANSTACK_DEVTOOLS_SERVER__).toBeNull()
     })
 
+    it('starts even in a non-development environment when force: true', async () => {
+      process.env.NODE_ENV = 'production'
+      bus = new ServerEventBus({ port: 0, force: true })
+      const port = await bus.start()
+      // force bypasses the NODE_ENV gate, so a real server was created and
+      // an OS-assigned port was bound.
+      expect(port).toBeGreaterThan(0)
+      expect(bus.port).toBe(port)
+      expect(globalThis.__TANSTACK_DEVTOOLS_SERVER__).not.toBeNull()
+      expect(globalThis.__TANSTACK_DEVTOOLS_WSS_SERVER__).not.toBeNull()
+    })
+
+    it('answers the tanstack-connect handshake when forced under non-development', async () => {
+      process.env.NODE_ENV = 'production'
+      bus = new ServerEventBus({ port: 0, force: true })
+      await bus.start()
+
+      // The bus must have attached its `tanstack-connect` listener despite the
+      // non-development NODE_ENV; dispatching it should produce a
+      // `tanstack-connect-success` reply on the shared event target.
+      const target = globalThis.__TANSTACK_EVENT_TARGET__
+      expect(target).not.toBeNull()
+      const success = new Promise<void>((resolve) =>
+        target!.addEventListener('tanstack-connect-success', () => resolve()),
+      )
+      target!.dispatchEvent(new CustomEvent('tanstack-connect'))
+      await success
+    })
+
     it('should resolve immediately if server is already running (HMR guard)', async () => {
       bus = new ServerEventBus({ port: 0 })
       await bus.start()

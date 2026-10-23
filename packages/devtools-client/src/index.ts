@@ -52,7 +52,7 @@ export interface PluginInjection {
   }
 }
 
-interface EventMap {
+export interface EventMap {
   ready: {
     packageJson: PackageJson | null
     outdatedDeps: OutdatedDeps | null

@@ -45,6 +45,18 @@ export interface ServerEventBusConfig {
    * Useful for piggybacking on Vite's HTTPS-enabled server.
    */
   httpServer?: HttpServerLike | undefined
+  /**
+   * Force the event bus to start even when `process.env.NODE_ENV` is not
+   * `'development'`. The default (`false`) preserves the historical behavior
+   * of refusing to start outside development, which is correct for bundler
+   * plugins that gate their own dev features on `NODE_ENV` (e.g. the Vite
+   * plugin). Bundler plugins that instead gate on the compiler's `mode`
+   * (e.g. the rspack plugin) should set this to `true` so a dev-mode
+   * compiler still gets a working event bus when `NODE_ENV` is preset to a
+   * non-development value (Docker images with `ENV NODE_ENV=production`,
+   * `cross-env`, programmatic `@rspack/core` usage, test runners, etc.).
+   */
+  force?: boolean | undefined
 }
 
 export class ServerEventBus {
@@ -56,6 +68,7 @@ export class ServerEventBus {
   #port: number
   #host: string
   #debug: boolean
+  #force: boolean
   #externalServer: HttpServerLike | null = null
   #externalRequestHandler:
     | ((req: http.IncomingMessage, res: http.ServerResponse) => void)
@@ -78,10 +91,12 @@ export class ServerEventBus {
     port = 4206,
     host = 'localhost',
     debug = false,
+    force = false,
     httpServer,
   }: ServerEventBusConfig = {}) {
     this.#port = port
     this.#host = host
+    this.#force = force
     this.#eventTarget =
       globalThis.__TANSTACK_EVENT_TARGET__ ?? new EventTarget()
     // we want to set the global event target only once so that we can emit/listen to events on the server
@@ -201,7 +216,7 @@ export class ServerEventBus {
 
   start(): Promise<number> {
     return new Promise((resolve) => {
-      if (process.env.NODE_ENV !== 'development') {
+      if (!this.#force && process.env.NODE_ENV !== 'development') {
         resolve(this.#port)
         return
       }

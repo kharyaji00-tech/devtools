@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { devtoolsEventClient } from '@tanstack/devtools-client'
+import { devtoolsEventClient } from '@tanstack/devtools-client/production'
 import { ServerEventBus } from '@tanstack/devtools-event-bus/server'
 import chalk from 'chalk'
 import {
@@ -216,6 +216,16 @@ export class TanStackDevtoolsRspackPlugin {
           ...args.eventBusConfig,
           port: preferredPort,
           host: busHost,
+          // The rspack plugin gates its dev features on the compiler's `mode`
+          // (see the `isDev` check above), not on `process.env.NODE_ENV`. The
+          // event bus's `start()` otherwise refuses to listen when
+          // `NODE_ENV !== 'development'`, so a dev-mode compiler running under a
+          // preset non-development `NODE_ENV` (Docker images with
+          // `ENV NODE_ENV=production`, `cross-env`, programmatic `@rspack/core`
+          // usage, test runners, ...) would get a bus that silently no-ops and
+          // discards every event. `force` overrides that gate so the bus a
+          // dev-mode compiler explicitly requested actually starts.
+          force: true,
         })
         // start() handles EADDRINUSE and returns the actual bound port.
         bus
