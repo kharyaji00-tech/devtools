@@ -205,6 +205,16 @@ export class ClientEventBus {
     this.#socket = null
     this.#eventSource = null
     this.#pendingServerEvents = []
+    // Detach the relay handler and close the broadcast channel so a stopped
+    // bus stops receiving cross-channel messages. Without this, the channel
+    // stays open after an unmount and keeps re-dispatching events onto window,
+    // which duplicates every event after an unmount->remount cycle (two live
+    // same-name channels each receive the other's posts per the spec).
+    if (this.#broadcastChannel) {
+      this.#broadcastChannel.onmessage = null
+      this.#broadcastChannel.close()
+      this.#broadcastChannel = null
+    }
   }
   private getGlobalTarget() {
     if (typeof window !== 'undefined') {
