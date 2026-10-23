@@ -1,15 +1,49 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ClientEventBus } from '../src/client/client'
 
-// Stub BroadcastChannel since it's not available in test environment
+// Stub BroadcastChannel since it's not available in the test environment.
+// Unlike a naive inert stub, this one models the real spec behavior that the
+// bug hinges on: a message posted on one channel is delivered to every OTHER
+// same-name channel in the document. That delivery is what lets a stale,
+// un-closed channel keep re-dispatching events after an unmount, so tests can
+// actually observe the duplicate the fix prevents.
+const broadcastChannelInstances = new Map<string, Set<any>>()
+
 vi.stubGlobal(
   'BroadcastChannel',
-  class {
-    postMessage = vi.fn()
+  class MockBroadcastChannel {
+    name: string
+    onmessage: ((e: { data: any }) => void) | null = null
+    closed = false
+    postMessage = (data: any) => {
+      const peers = broadcastChannelInstances.get(this.name)
+      if (!peers) {
+        return
+      }
+      for (const peer of peers) {
+        if (peer === this || peer.closed) {
+          continue
+        }
+        const handler = peer.onmessage
+        if (typeof handler === 'function') {
+          handler({ data })
+        }
+      }
+    }
     addEventListener = vi.fn()
     removeEventListener = vi.fn()
-    close = vi.fn()
-    onmessage: any = null
+    close = () => {
+      this.closed = true
+      this.onmessage = null
+      broadcastChannelInstances.get(this.name)?.delete(this)
+    }
+    constructor(name: string) {
+      this.name = name
+      if (!broadcastChannelInstances.has(name)) {
+        broadcastChannelInstances.set(name, new Set())
+      }
+      broadcastChannelInstances.get(name)!.add(this)
+    }
   },
 )
 
@@ -83,6 +117,7 @@ describe('ClientEventBus', () => {
   beforeEach(() => {
     mockWebSocketInstances.length = 0
     mockEventSourceInstances.length = 0
+    broadcastChannelInstances.clear()
     vi.stubGlobal('WebSocket', createMockWebSocketClass())
     vi.stubGlobal('EventSource', createMockEventSourceClass())
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({}))
@@ -486,6 +521,82 @@ describe('ClientEventBus', () => {
       bus.stop()
 
       expect(mockEventSourceInstances[0].close).toHaveBeenCalled()
+    })
+
+    it('should close the BroadcastChannel and detach its onmessage handler', () => {
+      const bus = new ClientEventBus()
+      bus.start()
+
+      const liveChannels = broadcastChannelInstances.get('tanstack-devtools')
+      expect(liveChannels?.size).toBe(1)
+      const channel = [...liveChannels!][0]
+
+      // The constructor wires the relay handler that re-dispatches onto
+      // window; it must be live while the bus is running.
+      expect(channel.onmessage).not.toBeNull()
+
+      bus.stop()
+
+      // stop() must detach the relay handler and close the channel so it
+      // stops receiving cross-channel messages and is removed from the
+      // document (preventing an unbounded channel-per-mount leak).
+      expect(channel.onmessage).toBeNull()
+      expect(channel.closed).toBe(true)
+      expect(
+        broadcastChannelInstances.get('tanstack-devtools')?.size ?? 0,
+      ).toBe(0)
+    })
+
+    it('should be safe to call stop() multiple times', () => {
+      const bus = new ClientEventBus()
+      bus.start()
+      bus.stop()
+
+      // A second stop() (e.g. a double unmount) must not throw now that the
+      // broadcast channel field has been nulled.
+      expect(() => bus.stop()).not.toThrow()
+    })
+  })
+
+  describe('broadcast channel lifecycle (unmount -> remount)', () => {
+    it('stop() prevents duplicate event delivery after an unmount->remount cycle', () => {
+      // Simulates a devtools unmount -> remount: the stale bus is stopped
+      // (its window listeners are removed), then a fresh bus is live.
+      const stale = new ClientEventBus()
+      stale.start()
+
+      const fresh = new ClientEventBus()
+      fresh.start()
+
+      const specificHandler = vi.fn()
+      const globalHandler = vi.fn()
+      window.addEventListener('probe:once', specificHandler)
+      window.addEventListener('tanstack-devtools-global', globalHandler)
+
+      // "Unmount" the stale bus. Its dispatcher is removed, but without the
+      // fix its BroadcastChannel stays open and keeps re-dispatching.
+      stale.stop()
+
+      // Emit an event purely through the fresh bus. The fresh bus posts to its
+      // own channel; per the BroadcastChannel spec the message would also be
+      // delivered to the stale bus's channel. With the fix that channel was
+      // closed on stop, so only the fresh bus re-dispatches onto window.
+      window.dispatchEvent(
+        new CustomEvent('tanstack-dispatch-event', {
+          detail: { type: 'probe:once', payload: { phase: 'after-stop' } },
+        }),
+      )
+
+      expect(specificHandler).toHaveBeenCalledTimes(1)
+      expect(globalHandler).toHaveBeenCalledTimes(1)
+      // Only the fresh bus's channel survives unmount.
+      expect(
+        broadcastChannelInstances.get('tanstack-devtools')?.size ?? 0,
+      ).toBe(1)
+
+      window.removeEventListener('probe:once', specificHandler)
+      window.removeEventListener('tanstack-devtools-global', globalHandler)
+      fresh.stop()
     })
   })
 })
