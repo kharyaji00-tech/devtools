@@ -69,6 +69,17 @@ type WithGeneric<TData> = {
 
 type _WithGeneric = CollapsiblePaths<WithGeneric<{ a: { b: string } }>>
 
+// Self-referential (cyclic) types previously caused TS2589 because the
+// mapped-type recursion in `CollapsibleKeys` had no base case. The depth
+// cap must turn these into a finite path union instead of a compile error.
+type TreeNode = { name: string; children: Array<TreeNode> }
+
+type _TreeNode = CollapsiblePaths<TreeNode>
+
+type LinkedList = { value: number; next?: LinkedList }
+
+type _LinkedList = CollapsiblePaths<LinkedList>
+
 describe('deep-keys', () => {
   it('should type deeply nested keys', () => {
     expectTypeOf<_DeeplyNestedObject>().toEqualTypeOf<
@@ -118,5 +129,35 @@ describe('deep-keys', () => {
 
   it('should handle generics', () => {
     expectTypeOf<_WithGeneric>().toEqualTypeOf<'' | 'generic' | 'generic.a'>()
+  })
+
+  it('should handle self-referential tree types without TS2589', () => {
+    expectTypeOf<_TreeNode>().toEqualTypeOf<
+      | ''
+      | 'children'
+      | `children[${number}]`
+      | `children[${number}].children`
+      | `children[${number}].children[${number}]`
+      | `children[${number}].children[${number}].children`
+      | `children[${number}].children[${number}].children[${number}]`
+      | `children[${number}].children[${number}].children[${number}].children`
+      | `children[${number}].children[${number}].children[${number}].children[${number}]`
+      | `children[${number}].children[${number}].children[${number}].children[${number}].children`
+    >()
+  })
+
+  it('should handle self-referential linked-list types without TS2589', () => {
+    expectTypeOf<_LinkedList>().toEqualTypeOf<
+      | ''
+      | 'next'
+      | 'next.next'
+      | 'next.next.next'
+      | 'next.next.next.next'
+      | 'next.next.next.next.next'
+      | 'next.next.next.next.next.next'
+      | 'next.next.next.next.next.next.next'
+      | 'next.next.next.next.next.next.next.next'
+      | 'next.next.next.next.next.next.next.next.next'
+    >()
   })
 })
