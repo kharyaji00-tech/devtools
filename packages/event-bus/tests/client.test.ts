@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ClientEventBus } from '../src/client/client'
 
 // Stub BroadcastChannel since it's not available in test environment
+const mockBroadcastChannelInstances: Array<any> = []
 vi.stubGlobal(
   'BroadcastChannel',
   class {
@@ -10,6 +11,9 @@ vi.stubGlobal(
     removeEventListener = vi.fn()
     close = vi.fn()
     onmessage: any = null
+    constructor() {
+      mockBroadcastChannelInstances.push(this)
+    }
   },
 )
 
@@ -83,6 +87,7 @@ describe('ClientEventBus', () => {
   beforeEach(() => {
     mockWebSocketInstances.length = 0
     mockEventSourceInstances.length = 0
+    mockBroadcastChannelInstances.length = 0
     vi.stubGlobal('WebSocket', createMockWebSocketClass())
     vi.stubGlobal('EventSource', createMockEventSourceClass())
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({}))
@@ -447,6 +452,67 @@ describe('ClientEventBus', () => {
       bus.start()
 
       expect(logSpy).not.toHaveBeenCalled()
+      bus.stop()
+    })
+  })
+
+  describe('BroadcastChannel malformed message handling', () => {
+    it('should not throw when a BroadcastChannel message is invalid JSON', () => {
+      const bus = new ClientEventBus()
+      bus.start()
+
+      const bc = mockBroadcastChannelInstances[0]
+      expect(bc.onmessage).toBeTypeOf('function')
+
+      expect(() => bc.onmessage({ data: 'not json' })).not.toThrow()
+      bus.stop()
+    })
+
+    it('should not throw when a BroadcastChannel message has a non-numeric BigInt marker', () => {
+      const bus = new ClientEventBus()
+      bus.start()
+
+      const bc = mockBroadcastChannelInstances[0]
+      const badMarker = JSON.stringify({
+        type: 'bad:event',
+        payload: { id: { __type: 'bigint', value: 'abc' } },
+      })
+
+      expect(() => bc.onmessage({ data: badMarker })).not.toThrow()
+      bus.stop()
+    })
+
+    it('should still emit valid BroadcastChannel messages to client listeners', () => {
+      const bus = new ClientEventBus()
+      bus.start()
+
+      const handler = vi.fn()
+      window.addEventListener('bc:event', handler)
+
+      const bc = mockBroadcastChannelInstances[0]
+      bc.onmessage({
+        data: JSON.stringify({ type: 'bc:event', payload: { n: 1 } }),
+      })
+
+      expect(handler).toHaveBeenCalledTimes(1)
+      window.removeEventListener('bc:event', handler)
+      bus.stop()
+    })
+
+    it('should not re-post received BroadcastChannel messages (no infinite loop)', () => {
+      const bus = new ClientEventBus()
+      bus.start()
+
+      const bc = mockBroadcastChannelInstances[0]
+      const postSpy = bc.postMessage
+
+      bc.onmessage({
+        data: JSON.stringify({ type: 'bc:event', payload: { n: 1 } }),
+      })
+
+      // Received broadcast messages are forwarded with fromBroadcastChannel=true,
+      // so postMessage must not be called again.
+      expect(postSpy).not.toHaveBeenCalled()
       bus.stop()
     })
   })

@@ -111,6 +111,57 @@ describe('json utils', () => {
       expect(result.fake).toEqual({ __type: 'bigint', value: 123 })
       expect(result.real).toBe(BigInt(456))
     })
+
+    it('should leave a marker with a non-numeric value string unchanged instead of throwing', () => {
+      const json = JSON.stringify({
+        bad: { __type: 'bigint', value: 'abc' },
+      })
+      expect(() => parseWithBigInt(json)).not.toThrow()
+      const result = parseWithBigInt(json)
+      expect(result.bad).toEqual({ __type: 'bigint', value: 'abc' })
+    })
+
+    it('should leave markers with various invalid value strings unchanged', () => {
+      // These strings are all rejected by BigInt() and should be left as-is.
+      const invalidValues = ['abc', '1.5', 'NaN', 'Infinity', '[]', 'undefined']
+      for (const invalidValue of invalidValues) {
+        const json = JSON.stringify({
+          __type: 'bigint',
+          value: invalidValue,
+        })
+        expect(() => parseWithBigInt(json)).not.toThrow()
+        const result = parseWithBigInt(json)
+        expect(result).toEqual({ __type: 'bigint', value: invalidValue })
+      }
+    })
+
+    it('should convert empty/whitespace marker values (valid BigInt strings)', () => {
+      // BigInt('') and BigInt('   ') both return 0n; this is existing JS
+      // behavior and not a crash vector, so the marker should still convert.
+      expect(
+        parseWithBigInt(JSON.stringify({ __type: 'bigint', value: '' })),
+      ).toBe(0n)
+      expect(
+        parseWithBigInt(JSON.stringify({ __type: 'bigint', value: '   ' })),
+      ).toBe(0n)
+    })
+
+    it('should still convert valid numeric marker strings alongside invalid ones', () => {
+      const json = JSON.stringify({
+        good: { __type: 'bigint', value: '123' },
+        bad: { __type: 'bigint', value: 'abc' },
+        alsoGood: { __type: 'bigint', value: '9007199254740991' },
+      })
+      const result = parseWithBigInt(json)
+      expect(result.good).toBe(BigInt(123))
+      expect(result.bad).toEqual({ __type: 'bigint', value: 'abc' })
+      expect(result.alsoGood).toBe(BigInt(9007199254740991))
+    })
+
+    it('should throw on invalid JSON (not silently swallow parse errors)', () => {
+      expect(() => parseWithBigInt('not json')).toThrow(SyntaxError)
+      expect(() => parseWithBigInt('{')).toThrow(SyntaxError)
+    })
   })
 
   describe('round-trip', () => {

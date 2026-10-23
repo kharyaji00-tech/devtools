@@ -26,7 +26,14 @@ export function parseWithBigInt(json: string): any {
       value.__type === 'bigint' &&
       typeof value.value === 'string'
     ) {
-      return BigInt(value.value)
+      try {
+        return BigInt(value.value)
+      } catch {
+        // The marker shape matched but the value is not a valid BigInt string
+        // (e.g. a non-numeric string). Leave the value unchanged instead of
+        // throwing, so malformed payloads cannot crash the host process.
+        return value
+      }
     }
     return value
   })
