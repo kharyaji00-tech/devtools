@@ -260,8 +260,7 @@ export const devtools = (args?: TanStackDevtoolsViteConfig): Array<Plugin> => {
           return false
         return config.mode === 'development'
       },
-      async configureServer() {
-        const packageJson = await readPackageJson()
+      configureServer() {
         const outdatedDeps = emitOutdatedDeps().then((deps) => deps)
 
         // Listen for package installation requests
@@ -438,7 +437,7 @@ export const devtools = (args?: TanStackDevtoolsViteConfig): Array<Plugin> => {
             outdatedDeps: await outdatedDeps,
           })
           devtoolsEventClient.emit('package-json-read', {
-            packageJson,
+            packageJson: await readPackageJson(),
           })
         })
 
