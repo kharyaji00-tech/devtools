@@ -1,7 +1,7 @@
 import { createComponent, createEffect, createRoot, useContext } from 'solid-js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_ACTIVE_PLUGINS } from '../utils/constants'
-import { flattenTabs } from '../utils/layout-tree'
+import { allGroups, flattenTabs } from '../utils/layout-tree'
 import { TANSTACK_DEVTOOLS_STATE } from '../utils/storage'
 import {
   DevtoolsContext,
@@ -10,6 +10,7 @@ import {
   getStateFromLocalStorage,
 } from './devtools-context'
 import type { TanStackDevtoolsPlugin } from './devtools-context'
+import type { DevtoolsStore } from './devtools-store'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -430,6 +431,169 @@ describe('provider resilience', () => {
     expect(ids).toEqual(['old-0'])
     replace([{ name: 'New', render: () => {} }])
     expect(ids).toEqual(['new-0'])
+    dispose()
+  })
+})
+
+describe('updatePlugins repairs the live layout against the new plugin ids', () => {
+  beforeEach(() => localStorage.clear())
+
+  // Mount the provider the way TanStackDevtoolsCore does: capture the
+  // `updatePlugins` setter through `onSetPlugins` and read the live store
+  // through the context. Stores update synchronously, so the store handle is
+  // current as soon as `replace` returns.
+  const mountProvider = (initial: Array<TanStackDevtoolsPlugin>) => {
+    let replace!: (plugins: Array<TanStackDevtoolsPlugin>) => void
+    let store!: DevtoolsStore
+    const dispose = createRoot((disposeRoot) => {
+      createComponent(DevtoolsProvider, {
+        plugins: initial,
+        onSetPlugins: (setter) => {
+          replace = setter
+        },
+        get children() {
+          store = useContext(DevtoolsContext)!.store
+          return null
+        },
+      })
+      return disposeRoot
+    })
+    return {
+      replace: (plugins: Array<TanStackDevtoolsPlugin>) => replace(plugins),
+      get store() {
+        return store
+      },
+      dispose,
+    }
+  }
+
+  const plugin = (id: string): TanStackDevtoolsPlugin => ({
+    id,
+    name: id,
+    render: () => {},
+  })
+
+  const seedLayout = (tabs: Array<string>) =>
+    localStorage.setItem(
+      TANSTACK_DEVTOOLS_STATE,
+      JSON.stringify({ layout: { kind: 'group', id: 'g0', tabs, active: 0 } }),
+    )
+
+  it('prunes a removed plugin tab from the live layout', async () => {
+    seedLayout(['a', 'b'])
+    const { replace, store, dispose } = mountProvider([
+      plugin('a'),
+      plugin('b'),
+    ])
+    await Promise.resolve()
+    expect(flattenTabs(store.state.layout)).toEqual(['a', 'b'])
+
+    replace([plugin('b')])
+    // 'a' is gone from the layout, not left behind as a dangling tab.
+    expect(flattenTabs(store.state.layout)).toEqual(['b'])
+    expect(store.plugins?.map((p) => p.id)).toEqual(['b'])
+    dispose()
+  })
+
+  it('keeps surviving panes and the split structure when one plugin goes', async () => {
+    localStorage.setItem(
+      TANSTACK_DEVTOOLS_STATE,
+      JSON.stringify({
+        layout: {
+          kind: 'split',
+          dir: 'row',
+          sizes: [0.5, 0.5],
+          children: [
+            { kind: 'group', id: 'g0', tabs: ['a'], active: 0 },
+            { kind: 'group', id: 'g1', tabs: ['b', 'c'], active: 0 },
+          ],
+        },
+      }),
+    )
+    const { replace, store, dispose } = mountProvider([
+      plugin('a'),
+      plugin('b'),
+      plugin('c'),
+    ])
+    await Promise.resolve()
+
+    replace([plugin('a'), plugin('c')])
+    const layout = store.state.layout!
+    expect(layout.kind).toBe('split')
+    expect(flattenTabs(layout)).toEqual(['a', 'c'])
+    // 'b' is pruned out of the second group, which still holds 'c'.
+    expect(allGroups(layout).map((g) => g.tabs)).toEqual([['a'], ['c']])
+    dispose()
+  })
+
+  it('prunes every tab whose generated id shifted on reorder', async () => {
+    // Plugins without an explicit id get `<name>-<index>`, so reordering shifts
+    // every id. Before the fix the layout kept referencing the stale ids.
+    const alpha: TanStackDevtoolsPlugin = { name: 'Alpha', render: () => {} }
+    const beta: TanStackDevtoolsPlugin = { name: 'Beta', render: () => {} }
+    seedLayout(['alpha-0', 'beta-1'])
+    const { replace, store, dispose } = mountProvider([alpha, beta])
+    await Promise.resolve()
+    expect(store.plugins?.map((p) => p.id)).toEqual(['alpha-0', 'beta-1'])
+    expect(flattenTabs(store.state.layout)).toEqual(['alpha-0', 'beta-1'])
+
+    // Reorder -> new ids beta-0 / alpha-1; none of the old ids survive.
+    replace([beta, alpha])
+    expect(store.plugins?.map((p) => p.id)).toEqual(['beta-0', 'alpha-1'])
+    expect(flattenTabs(store.state.layout)).toEqual([])
+    expect(store.state.layout).toBeNull()
+    dispose()
+  })
+
+  it('matches the layout a reload would produce from the same persisted state', async () => {
+    seedLayout(['a', 'b'])
+    const { replace, store, dispose } = mountProvider([
+      plugin('a'),
+      plugin('b'),
+    ])
+    await Promise.resolve()
+
+    replace([plugin('b')])
+
+    const live = flattenTabs(store.state.layout)
+    // What a reload (mount) would do with the persisted state the runtime
+    // update just wrote. Before the fix these disagreed.
+    const reloaded = getStateFromLocalStorage([plugin('b')])
+    expect(flattenTabs(reloaded?.layout ?? null)).toEqual(live)
+    expect(live).toEqual(['b'])
+    dispose()
+  })
+
+  it('does not auto-open plugins newly added at runtime', async () => {
+    seedLayout(['a'])
+    const { replace, store, dispose } = mountProvider([plugin('a')])
+    await Promise.resolve()
+    expect(flattenTabs(store.state.layout)).toEqual(['a'])
+
+    replace([plugin('a'), plugin('new')])
+    // 'new' is available but not opened — repair prunes, it never adds.
+    expect(store.plugins?.map((p) => p.id)).toEqual(['a', 'new'])
+    expect(flattenTabs(store.state.layout)).toEqual(['a'])
+    expect(store.state.layout).not.toBeNull()
+    dispose()
+  })
+
+  it('does not rewrite storage when the plugin set is unchanged', async () => {
+    seedLayout(['a', 'b'])
+    const { replace, store, dispose } = mountProvider([
+      plugin('a'),
+      plugin('b'),
+    ])
+    await Promise.resolve()
+
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    replace([plugin('a'), plugin('b')])
+    // Unchanged ids -> repairLayout produces the same content -> no
+    // replaceLayout -> no TANSTACK_DEVTOOLS_STATE write from the update.
+    expect(
+      setItem.mock.calls.some(([key]) => key === TANSTACK_DEVTOOLS_STATE),
+    ).toBe(false)
+    expect(flattenTabs(store.state.layout)).toEqual(['a', 'b'])
     dispose()
   })
 })

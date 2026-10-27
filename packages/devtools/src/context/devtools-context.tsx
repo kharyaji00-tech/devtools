@@ -218,6 +218,22 @@ export const DevtoolsProvider = (props: ContextProps) => {
 
   setStorageItem(TANSTACK_DEVTOOLS_STATE, JSON.stringify(store.state))
 
+  const replaceLayout = (next: DevtoolsStore['state']['layout']) => {
+    // `reconcile`, not a plain write. A Solid store merges one object node into
+    // another, so writing the new tree over the old one keeps whatever keys and
+    // children the old shape had — closing one of three panes left the third
+    // child behind and the layout never collapsed. Clearing to `null` first
+    // would fix that but empties the layout for an instant, which tears every
+    // plugin down and rebuilds it. `reconcile` diffs in one step, shrinking
+    // arrays and dropping absent keys, with no empty state in between.
+    setStore(
+      'state',
+      'layout',
+      next === null ? null : reconcile(next, { key: null }),
+    )
+    setStorageItem(TANSTACK_DEVTOOLS_STATE, JSON.stringify(store.state))
+  }
+
   // Provide a way for the core to update plugins reactively
   const updatePlugins = (newPlugins: Array<TanStackDevtoolsPlugin>) => {
     const pluginsWithIds = newPlugins.map((plugin, i) => {
@@ -227,6 +243,18 @@ export const DevtoolsProvider = (props: ContextProps) => {
         id,
       }
     })
+
+    // Re-establish the mount-time invariant that every tab id in the layout
+    // refers to a known plugin. `getStateFromLocalStorage` does this once on
+    // load; doing it here too keeps a plugin removed (or whose generated id
+    // shifted) at runtime from leaving a dangling tab that renders an empty
+    // pane and counts toward MAX_ACTIVE_PLUGINS — which is what a reload would
+    // prune anyway. Compared by contents so an unchanged set does no work.
+    const known = new Set(pluginsWithIds.map((plugin) => plugin.id))
+    const repaired = repairLayout(store.state.layout ?? null, known)
+    if (JSON.stringify(repaired) !== JSON.stringify(store.state.layout)) {
+      replaceLayout(repaired)
+    }
 
     setStore('plugins', pluginsWithIds)
   }
@@ -255,21 +283,7 @@ export const DevtoolsProvider = (props: ContextProps) => {
         ...newState,
       }))
     },
-    replaceLayout: (next: DevtoolsStore['state']['layout']) => {
-      // `reconcile`, not a plain write. A Solid store merges one object node into
-      // another, so writing the new tree over the old one keeps whatever keys and
-      // children the old shape had — closing one of three panes left the third
-      // child behind and the layout never collapsed. Clearing to `null` first
-      // would fix that but empties the layout for an instant, which tears every
-      // plugin down and rebuilds it. `reconcile` diffs in one step, shrinking
-      // arrays and dropping absent keys, with no empty state in between.
-      setStore(
-        'state',
-        'layout',
-        next === null ? null : reconcile(next, { key: null }),
-      )
-      setStorageItem(TANSTACK_DEVTOOLS_STATE, JSON.stringify(store.state))
-    },
+    replaceLayout,
   }
 
   return createComponent(DevtoolsContext.Provider, {
