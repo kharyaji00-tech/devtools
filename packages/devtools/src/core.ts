@@ -101,16 +101,21 @@ export class TanStackDevtoolsCore {
     this.#state = 'unmounted'
   }
 
-  setConfig(config: Partial<TanStackDevtoolsInit>) {
-    this.#config = {
-      ...this.#config,
-      ...config,
+  setConfig(init: Partial<TanStackDevtoolsInit>) {
+    if (init.config) {
+      this.#config = {
+        ...this.#config,
+        ...init.config,
+      }
     }
-    if (config.plugins) {
-      this.#plugins = config.plugins
+    if (init.eventBusConfig) {
+      this.#eventBusConfig = init.eventBusConfig
+    }
+    if (init.plugins) {
+      this.#plugins = init.plugins
       // Update the reactive store if mounted
       if (this.#state === 'mounted' && this.#setPlugins) {
-        this.#setPlugins(config.plugins)
+        this.#setPlugins(init.plugins)
       }
     }
   }
