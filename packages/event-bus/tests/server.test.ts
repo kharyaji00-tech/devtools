@@ -1,4 +1,5 @@
 import http from 'node:http'
+import { WebSocket } from 'ws'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ServerEventBus } from '../src/server/server'
 
@@ -122,6 +123,130 @@ describe('ServerEventBus', () => {
       bus = new ServerEventBus({ port: 0, host: '127.0.0.1' })
       const port = await bus.start()
       expect(port).toBeGreaterThan(0)
+    })
+  })
+
+  describe('WebSocket message handling - malformed frames', () => {
+    function connectWs(port: number): Promise<WebSocket> {
+      return new Promise((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}/__devtools/ws`)
+        ws.on('open', () => resolve(ws))
+        ws.on('error', reject)
+      })
+    }
+
+    // Marker-shaped object with a non-numeric value used to crash the host
+    // process via BigInt(value.value) throwing inside the unguarded ws handler.
+    const badBigIntMarker = JSON.stringify({
+      __type: 'bigint',
+      value: 'abc',
+    })
+
+    it('should not crash when receiving a non-numeric BigInt marker frame', async () => {
+      bus = new ServerEventBus({ port: 0, host: '127.0.0.1', debug: true })
+      const port = await bus.start()
+
+      const ws = await connectWs(port)
+      try {
+        // Send the malformed payload that previously crashed the process.
+        await new Promise<void>((resolve) => {
+          ws.send(badBigIntMarker, () => resolve())
+        })
+        // Allow the server time to (attempt to) process the frame.
+        await new Promise((resolve) => setTimeout(resolve, 100))
+
+        // The server must still be alive: a subsequent valid event should be
+        // dispatched to registered listeners on the global event target.
+        const handler = vi.fn()
+        globalThis.__TANSTACK_EVENT_TARGET__?.addEventListener(
+          'valid:after-bad',
+          handler,
+        )
+        const validEvent = JSON.stringify({
+          type: 'valid:after-bad',
+          payload: { ok: true },
+        })
+        await new Promise<void>((resolve) => {
+          ws.send(validEvent, () => resolve())
+        })
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        expect(handler).toHaveBeenCalledTimes(1)
+        globalThis.__TANSTACK_EVENT_TARGET__?.removeEventListener(
+          'valid:after-bad',
+          handler,
+        )
+      } finally {
+        ws.close()
+      }
+    })
+
+    it('should not crash when receiving plain invalid JSON over WebSocket', async () => {
+      bus = new ServerEventBus({ port: 0, host: '127.0.0.1' })
+      const port = await bus.start()
+
+      const ws = await connectWs(port)
+      try {
+        await new Promise<void>((resolve) => {
+          ws.send('not json', () => resolve())
+        })
+        await new Promise((resolve) => setTimeout(resolve, 100))
+
+        // Server still alive: send a valid event and confirm dispatch.
+        const handler = vi.fn()
+        globalThis.__TANSTACK_EVENT_TARGET__?.addEventListener(
+          'valid:after-invalid',
+          handler,
+        )
+        await new Promise<void>((resolve) => {
+          ws.send(
+            JSON.stringify({ type: 'valid:after-invalid', payload: {} }),
+            () => resolve(),
+          )
+        })
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        expect(handler).toHaveBeenCalledTimes(1)
+        globalThis.__TANSTACK_EVENT_TARGET__?.removeEventListener(
+          'valid:after-invalid',
+          handler,
+        )
+      } finally {
+        ws.close()
+      }
+    })
+
+    it('should still dispatch valid BigInt marker frames as BigInts over WebSocket', async () => {
+      bus = new ServerEventBus({ port: 0, host: '127.0.0.1' })
+      const port = await bus.start()
+
+      const ws = await connectWs(port)
+      try {
+        const handler = vi.fn()
+        globalThis.__TANSTACK_EVENT_TARGET__?.addEventListener(
+          'bigint:event',
+          (e: Event) => {
+            handler((e as CustomEvent).detail)
+          },
+        )
+        await new Promise<void>((resolve) => {
+          ws.send(
+            JSON.stringify({
+              type: 'bigint:event',
+              payload: { id: { __type: 'bigint', value: '123' } },
+            }),
+            () => resolve(),
+          )
+        })
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        expect(handler).toHaveBeenCalledTimes(1)
+        const detail = handler.mock.calls[0]![0]
+        expect(detail.payload.id).toBe(BigInt(123))
+        globalThis.__TANSTACK_EVENT_TARGET__?.removeEventListener(
+          'bigint:event',
+          handler,
+        )
+      } finally {
+        ws.close()
+      }
     })
   })
 

@@ -105,7 +105,17 @@ export class ClientEventBus {
     this.#connectToServerBus = connectToServerBus
     this.#eventTarget = this.getGlobalTarget()
     this.#broadcastChannel.onmessage = (e) => {
-      this.emitToClients(parseWithBigInt(e.data), true)
+      try {
+        const event = parseWithBigInt(e.data) as TanStackDevtoolsEvent<
+          string,
+          any
+        >
+        this.emitToClients(event, true)
+      } catch {
+        // Malformed broadcast messages must not throw out of the
+        // BroadcastChannel onmessage handler.
+        this.debugLog('Failed to parse BroadcastChannel message, dropping it')
+      }
     }
     this.debugLog('Initializing client event bus')
   }

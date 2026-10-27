@@ -193,8 +193,15 @@ export class ServerEventBus {
       })
       ws.on('message', (msg) => {
         this.debugLog('Received message from WebSocket client', msg.toString())
-        const data = parseWithBigInt(msg.toString())
-        this.emitToServer(data)
+        try {
+          const data = parseWithBigInt(msg.toString())
+          this.emitToServer(data)
+        } catch {
+          // Malformed frames (invalid JSON, etc.) must not escape the ws
+          // listener as an uncaught exception and kill the host process.
+          // This mirrors the guarded `POST /__devtools/send` handlers.
+          this.debugLog('Failed to parse WebSocket message, dropping it')
+        }
       })
     })
   }
