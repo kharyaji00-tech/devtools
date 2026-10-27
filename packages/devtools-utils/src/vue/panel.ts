@@ -24,21 +24,23 @@ export function createVuePanel<
     props,
     setup(config) {
       const devToolRef = ref<HTMLElement | null>(null)
-      const devtools = ref<TCoreDevtoolsClass | null>(null)
+      let instance: TCoreDevtoolsClass | null = null
+      let el: HTMLElement | null = null
 
       onMounted(() => {
-        const instance = new CoreClass(config.devtoolsProps as TComponentProps)
-        devtools.value = instance
-
-        if (devToolRef.value) {
-          instance.mount(devToolRef.value, config.props)
+        instance = new CoreClass(config.devtoolsProps as TComponentProps)
+        el = devToolRef.value
+        if (el) {
+          instance.mount(el, config.props)
         }
       })
 
       onUnmounted(() => {
-        if (devToolRef.value && devtools.value) {
-          devtools.value.unmount()
+        if (el) {
+          instance?.unmount()
         }
+        instance = null
+        el = null
       })
 
       return () => {
