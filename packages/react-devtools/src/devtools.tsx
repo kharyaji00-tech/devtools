@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { TanStackDevtoolsCore } from '@tanstack/devtools'
+import {
+  PLUGIN_CONTAINER_ID,
+  PLUGIN_TITLE_CONTAINER_ID,
+  TanStackDevtoolsCore,
+} from '@tanstack/devtools'
 import { createPortal } from 'react-dom'
 import type { JSX, ReactElement } from 'react'
 import type {
@@ -144,6 +148,43 @@ const convertTrigger = (
   setComponent(element)
 }
 
+const resolvePluginId = (
+  plugin: TanStackDevtoolsReactPlugin,
+  index: number,
+): string =>
+  plugin.id ??
+  (typeof plugin.name === 'string'
+    ? `${plugin.name.toLowerCase().replace(' ', '-')}-${index}`
+    : index.toString())
+
+const removeKey = <T,>(
+  setState: React.Dispatch<React.SetStateAction<Record<string, T>>>,
+  key: string,
+) => {
+  setState((prev) => {
+    if (!(key in prev)) return prev
+    const next = { ...prev }
+    delete next[key]
+    return next
+  })
+}
+
+const pruneStaleKeys = <T,>(
+  setState: React.Dispatch<React.SetStateAction<Record<string, T>>>,
+  prefix: string,
+  keepIds: Set<string>,
+) => {
+  setState((prev) => {
+    const staleKeys = Object.keys(prev).filter(
+      (key) => !keepIds.has(key.slice(prefix.length + 1)),
+    )
+    if (staleKeys.length === 0) return prev
+    const next = { ...prev }
+    for (const key of staleKeys) delete next[key]
+    return next
+  })
+}
+
 export const TanStackDevtools = ({
   plugins,
   config,
@@ -208,7 +249,17 @@ export const TanStackDevtools = ({
               }))
             }
 
+            const titleKey = `${PLUGIN_TITLE_CONTAINER_ID}-${id.slice(PLUGIN_CONTAINER_ID.length + 1)}`
+            removeKey(setTitleContainers, titleKey)
+            removeKey(setTitleComponents, titleKey)
+
             convertRender(plugin.render, setPluginComponents, e, theme)
+          },
+          destroy: (pluginId) => {
+            const pluginKey = `${PLUGIN_CONTAINER_ID}-${pluginId}`
+            removeKey(setPluginContainers, pluginKey)
+            removeKey(setPluginComponents, pluginKey)
+            plugin.destroy?.(pluginId)
           },
         }
       }) ?? [],
@@ -237,6 +288,16 @@ export const TanStackDevtools = ({
       plugins: pluginsMap,
     })
   }, [devtools, pluginsMap])
+
+  useEffect(() => {
+    const keepIds = new Set(
+      (plugins ?? []).map((plugin, index) => resolvePluginId(plugin, index)),
+    )
+    pruneStaleKeys(setPluginContainers, PLUGIN_CONTAINER_ID, keepIds)
+    pruneStaleKeys(setPluginComponents, PLUGIN_CONTAINER_ID, keepIds)
+    pruneStaleKeys(setTitleContainers, PLUGIN_TITLE_CONTAINER_ID, keepIds)
+    pruneStaleKeys(setTitleComponents, PLUGIN_TITLE_CONTAINER_ID, keepIds)
+  }, [plugins])
 
   useEffect(() => {
     if (devToolRef.current) {
