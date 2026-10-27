@@ -168,8 +168,7 @@ function isInteractiveElement(element: Element): boolean {
 
   // Check if it's an inherently interactive element
   if (INTERACTIVE_ELEMENTS.has(tagName)) {
-    // Disabled elements are not interactive
-    return !element.hasAttribute('disabled')
+    return true
   }
 
   // Check if it's an element that becomes interactive with href
@@ -188,6 +187,18 @@ function hasInteractiveRole(element: Element): boolean {
  * Check if element is focusable (has tabindex)
  */
 function isFocusable(element: Element): boolean {
+  const tagName = element.tagName.toLowerCase()
+
+  if (
+    element.hasAttribute('disabled') &&
+    (tagName === 'button' ||
+      tagName === 'input' ||
+      tagName === 'select' ||
+      tagName === 'textarea')
+  ) {
+    return false
+  }
+
   const tabindex = element.getAttribute('tabindex')
   if (tabindex === null) {
     return false
