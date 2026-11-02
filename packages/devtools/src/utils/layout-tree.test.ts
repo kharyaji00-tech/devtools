@@ -4,14 +4,11 @@ import {
   allGroups,
   appendPane,
   canSplit,
-  closeGroup,
   closeTab,
   flattenTabs,
-  insertionIndex,
   layoutRects,
   moveTab,
   nextGroupId,
-  paneRects,
   repairLayout,
   resetSplit,
   resize,
@@ -151,20 +148,6 @@ describe('closeTab', () => {
     expect(next.children).toHaveLength(2)
     expect(next.sizes.reduce((sum, size) => sum + size, 0)).toBeCloseTo(1, 10)
     expectWellFormed(next)
-  })
-})
-
-describe('closeGroup', () => {
-  it('removes every tab in the group and prunes', () => {
-    const tree = split('row', [group('g0', ['a', 'b']), group('g1', ['c'])])
-    const next = closeGroup(tree, 'g0')
-    expect(next).toEqual(group('g1', ['c'], 0))
-    expectWellFormed(next)
-  })
-
-  it('is a no-op for an unknown group', () => {
-    const tree = group('g0', ['a'])
-    expect(closeGroup(tree, 'gX')).toEqual(tree)
   })
 })
 
@@ -485,17 +468,8 @@ describe('layoutRects', () => {
     })
   })
 
-  it('gives every tab in a group the group rect', () => {
-    const tree = split('row', [group('g0', ['a', 'b']), group('g1', ['c'])])
-    const rects = paneRects(tree, BOX)
-    expect(rects.a).toEqual(rects.b)
-    expect(rects.a).toEqual({ left: 0, top: 0, width: 500, height: 400 })
-    expect(rects.c!.left).toBe(500)
-  })
-
   it('returns nothing for an empty tree', () => {
     expect(layoutRects(null, BOX)).toEqual({})
-    expect(paneRects(null, BOX)).toEqual({})
   })
 })
 
@@ -766,29 +740,6 @@ describe('zoneAt', () => {
     expect(
       zoneAt({ x: 0, y: 0 }, { left: 0, top: 0, width: 0, height: 0 }),
     ).toBe('center')
-  })
-})
-
-describe('insertionIndex', () => {
-  const tabs = [
-    { left: 0, top: 0, width: 100, height: 30 },
-    { left: 100, top: 0, width: 100, height: 30 },
-    { left: 200, top: 0, width: 100, height: 30 },
-  ]
-
-  it('inserts before a tab in its first half', () => {
-    expect(insertionIndex(10, tabs)).toBe(0)
-    expect(insertionIndex(120, tabs)).toBe(1)
-  })
-
-  it('inserts after a tab in its second half', () => {
-    expect(insertionIndex(80, tabs)).toBe(1)
-    expect(insertionIndex(180, tabs)).toBe(2)
-  })
-
-  it('appends past the end and handles an empty bar', () => {
-    expect(insertionIndex(999, tabs)).toBe(3)
-    expect(insertionIndex(0, [])).toBe(0)
   })
 })
 
