@@ -1,38 +1,24 @@
 import type { Node } from 'oxc-parser'
 
 /**
- * Cache of keys that hold child nodes (objects/arrays) per AST node type.
- * Since oxc-parser produces AST via JSON.parse, every instance of a given
- * node type has the same set of keys, so we only need to discover them once.
- */
-const childKeysCache = new Map<string, Array<string>>()
-
-function getChildKeys(node: Node): Array<string> {
-  let keys = childKeysCache.get(node.type)
-  if (keys) return keys
-
-  keys = []
-  for (const key in node) {
-    if (key === 'type' || key === 'start' || key === 'end') continue
-    // typeof null === 'object', so nullable node fields get cached too
-    if (typeof (node as any)[key] === 'object') {
-      keys.push(key)
-    }
-  }
-  childKeysCache.set(node.type, keys)
-  return keys
-}
-
-/**
  * Iterate over the direct child nodes of an AST node.
- * Uses a per-type cache of which keys hold child nodes to avoid
- * allocating Object.entries() arrays on every call.
+ *
+ * Child keys are discovered per instance rather than cached per `node.type`:
+ * oxc-parser instances of the same node type are *not* guaranteed to share a
+ * shape — the same key can hold `null`, a primitive, or a child node across
+ * instances (e.g. `Literal.value`, `PropertyDefinition.accessibility`), and
+ * optional keys can be omitted entirely (e.g. `Identifier.typeAnnotation` in
+ * JS vs. TS, `Literal.regex` only on regex literals). A module-global cache
+ * keyed only by `node.type` would freeze the first-seen shape and either throw
+ * on `'type' in <primitive>` or silently skip subtrees on later instances,
+ * with that wrong shape shared across every file a worker parses. The
+ * per-instance `for…in` scan is allocation-free, so caching buys nothing.
  */
 export function forEachChild(node: Node, callback: (child: Node) => void) {
-  const keys = getChildKeys(node)
-  for (const key of keys) {
+  for (const key in node) {
+    if (key === 'type' || key === 'start' || key === 'end') continue
     const value = (node as any)[key]
-    if (value === null) continue
+    if (value === null || typeof value !== 'object') continue
     if (Array.isArray(value)) {
       for (const item of value) {
         if (typeof item === 'object' && item !== null && 'type' in item) {
