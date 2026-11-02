@@ -1,5 +1,5 @@
 import { createAngularPanel } from '@tanstack/devtools-utils/angular'
-import { A11yDevtoolsCore } from '../../core'
+import { A11yDevtoolsCore } from '../../core/core'
 
 // type
 import type { DevtoolsPanelProps } from '@tanstack/devtools-utils/angular'

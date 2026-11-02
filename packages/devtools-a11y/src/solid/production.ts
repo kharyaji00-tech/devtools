@@ -1,4 +1,4 @@
-export { A11yDevtoolsPanel } from './A11yDevtools'
+export { A11yDevtoolsPanel } from './production/A11yDevtools'
 
 export type { A11yDevtoolsSolidInit } from './production/A11yDevtools'
 
