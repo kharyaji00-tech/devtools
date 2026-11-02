@@ -117,44 +117,40 @@ export interface TanStackDevtoolsInit {
   eventBusConfig?: ClientEventBusConfig
 }
 
-export default function SolidDevtoolsCore({
-  config,
-  plugins,
-  eventBusConfig,
-}: TanStackDevtoolsInit) {
+export default function SolidDevtoolsCore(props: TanStackDevtoolsInit) {
   // Convert plugins to the format expected by the core
   const pluginsMap = createMemo<Array<TanStackDevtoolsPlugin> | undefined>(() =>
-    plugins?.map((plugin) => ({
+    props.plugins?.map((plugin) => ({
       ...plugin,
       name:
         typeof plugin.name === 'string'
           ? plugin.name
           : // The check above confirms that `plugin.name` is of Render type
-            (el, props) =>
-              convertRender(el, plugin.name as SolidPluginRender, props),
-      render: (el: HTMLDivElement, props: TanStackDevtoolsPluginProps) =>
-        convertRender(el, plugin.render, props),
+            (el, pluginProps) =>
+              convertRender(el, plugin.name as SolidPluginRender, pluginProps),
+      render: (el: HTMLDivElement, pluginProps: TanStackDevtoolsPluginProps) =>
+        convertRender(el, plugin.render, pluginProps),
     })),
   )
 
-  const convertTrigger = (el: HTMLElement, props: TriggerProps) => {
-    const Trigger = config?.customTrigger
+  const convertTrigger = (el: HTMLElement, triggerProps: TriggerProps) => {
+    const Trigger = props.config?.customTrigger
 
     return (
       <Portal mount={el}>
-        {typeof Trigger === 'function' ? Trigger(el, props) : Trigger}
+        {typeof Trigger === 'function' ? Trigger(el, triggerProps) : Trigger}
       </Portal>
     )
   }
   const [devtools] = createSignal(
     new TanStackDevtoolsCore({
       config: {
-        ...config,
-        customTrigger: config?.customTrigger
-          ? (el, props) => convertTrigger(el, props)
+        ...props.config,
+        customTrigger: props.config?.customTrigger
+          ? (el, triggerProps) => convertTrigger(el, triggerProps)
           : undefined,
       },
-      eventBusConfig,
+      eventBusConfig: props.eventBusConfig,
       plugins: pluginsMap(),
     }),
   )
@@ -163,9 +159,9 @@ export default function SolidDevtoolsCore({
   createEffect(() => {
     devtools().setConfig({
       config: {
-        ...config,
-        customTrigger: config?.customTrigger
-          ? (el, props) => convertTrigger(el, props)
+        ...props.config,
+        customTrigger: props.config?.customTrigger
+          ? (el, triggerProps) => convertTrigger(el, triggerProps)
           : undefined,
       },
     })
