@@ -674,3 +674,315 @@ describe('trigger percent position', () => {
     expect(toPixels(100, 8, 4)).toBe(8)
   })
 })
+
+describe('repositioning the docked edge tab on window resize', () => {
+  const originalInnerWidth = window.innerWidth
+  const originalInnerHeight = window.innerHeight
+
+  beforeEach(() => {
+    localStorage.clear()
+    Element.prototype.setPointerCapture = vi.fn()
+    Element.prototype.releasePointerCapture = vi.fn()
+    Element.prototype.hasPointerCapture = vi.fn(() => false)
+  })
+
+  afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: originalInnerWidth,
+    })
+    Object.defineProperty(window, 'innerHeight', {
+      configurable: true,
+      value: originalInnerHeight,
+    })
+  })
+
+  const drag = (el: Element, type: string, x: number, y: number) =>
+    el.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        button: 0,
+        pointerId: 1,
+        clientX: x,
+        clientY: y,
+      }),
+    )
+
+  const setViewport = (w: number, h: number) => {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: w,
+    })
+    Object.defineProperty(window, 'innerHeight', {
+      configurable: true,
+      value: h,
+    })
+  }
+  const resize = () => window.dispatchEvent(new Event('resize'))
+  const along = (el: HTMLElement, axis: 'top' | 'left') =>
+    parseInt(el.style[axis], 10)
+
+  it('keeps a freshly docked right-edge tab on screen after the window shrinks', () => {
+    const { getByLabelText } = renderTrigger({ triggerMode: 'floating' })
+    const button = getByLabelText('Open TanStack Devtools')
+
+    // Dock by dragging the trigger over the right edge near the bottom.
+    drag(button, 'pointerdown', 8, 8)
+    drag(button, 'pointermove', 5000, 760)
+    drag(button, 'pointerup', 5000, 760)
+
+    const tab = getByLabelText('Open TanStack Devtools (docked)')
+    expect(tab).toBeInTheDocument()
+    // The original viewport is 1024x768; the tab sits anywhere inside the
+    // padded track [8, viewportH - 52] = [8, 716].
+    const topBefore = along(tab, 'top')
+    expect(topBefore).toBeGreaterThanOrEqual(8)
+    expect(topBefore).toBeLessThanOrEqual(768 - 44 - 8)
+
+    // Shrink the height: without the fix the tab keeps its stale pixel and
+    // ends up below the new viewport.
+    setViewport(1024, 400)
+    resize()
+
+    const topAfter = along(tab, 'top')
+    expect(topAfter).toBeGreaterThanOrEqual(8)
+    expect(topAfter).toBeLessThanOrEqual(400 - 44 - 8)
+  })
+
+  it('keeps a reload-docked right-edge tab on screen after the window shrinks', () => {
+    const { getByLabelText } = renderTrigger({
+      triggerMode: 'floating',
+      triggerEdge: 'right',
+      triggerCoords: { x: 50, y: 95 },
+    })
+    const tab = getByLabelText('Open TanStack Devtools (docked)')
+
+    // Render maps the stored 95% along the edge into the 768px viewport.
+    const topBefore = along(tab, 'top')
+    expect(topBefore).toBeGreaterThanOrEqual(8)
+    expect(topBefore).toBeLessThanOrEqual(768 - 44 - 8)
+
+    setViewport(1024, 400)
+    resize()
+
+    // The tab now maps 95% of the smaller viewport and clamps back in view.
+    const topAfter = along(tab, 'top')
+    expect(topAfter).toBeGreaterThanOrEqual(8)
+    expect(topAfter).toBeLessThanOrEqual(400 - 44 - 8)
+    // And the tab actually moved to match the new viewport, not stayed put.
+    expect(topAfter).toBeLessThan(topBefore)
+  })
+
+  it('keeps a docked bottom-edge tab on screen after the window shrinks horizontally', () => {
+    const { getByLabelText } = renderTrigger({
+      triggerMode: 'floating',
+      triggerEdge: 'bottom',
+      triggerCoords: { x: 95, y: 50 },
+    })
+    const tab = getByLabelText('Open TanStack Devtools (docked)')
+
+    const leftBefore = along(tab, 'left')
+    expect(leftBefore).toBeGreaterThanOrEqual(8)
+    expect(leftBefore).toBeLessThanOrEqual(1024 - 44 - 8)
+
+    setViewport(400, 768)
+    resize()
+
+    const leftAfter = along(tab, 'left')
+    expect(leftAfter).toBeGreaterThanOrEqual(8)
+    expect(leftAfter).toBeLessThanOrEqual(400 - 44 - 8)
+    expect(leftAfter).toBeLessThan(leftBefore)
+  })
+
+  it('keeps the docked tab at the same relative spot along its edge across resizes', () => {
+    const { getByLabelText } = renderTrigger({
+      triggerMode: 'floating',
+      triggerEdge: 'right',
+      triggerCoords: { x: 50, y: 25 },
+    })
+    const tab = getByLabelText('Open TanStack Devtools (docked)')
+
+    // 25% of the 768px viewport: 8 + 708 * 0.25 = 185.
+    expect(along(tab, 'top')).toBeCloseTo(185, 0)
+
+    setViewport(1024, 400)
+    resize()
+    // 25% of the 400px viewport: 8 + 340 * 0.25 = 93.
+    expect(along(tab, 'top')).toBeCloseTo(93, 0)
+
+    // Growing back to the original size restores the original pixel spot.
+    setViewport(1024, 768)
+    resize()
+    expect(along(tab, 'top')).toBeCloseTo(185, 0)
+  })
+
+  it('does not move the docked tab when the viewport size is unchanged', () => {
+    const { getByLabelText } = renderTrigger({
+      triggerMode: 'floating',
+      triggerEdge: 'right',
+      triggerCoords: { x: 50, y: 50 },
+    })
+    const tab = getByLabelText('Open TanStack Devtools (docked)')
+
+    const topBefore = tab.style.top
+    resize()
+    expect(tab.style.top).toBe(topBefore)
+  })
+
+  it('still lets a docked tab be dragged back out after a shrink', () => {
+    const { getByLabelText, queryByLabelText } = renderTrigger({
+      triggerMode: 'floating',
+      triggerEdge: 'right',
+      triggerCoords: { x: 50, y: 50 },
+    })
+    const tab = getByLabelText('Open TanStack Devtools (docked)')
+
+    setViewport(800, 400)
+    resize()
+    expect(tab).toBeInTheDocument()
+
+    // Drag the tab left, back into the (smaller) viewport, to undock.
+    drag(tab, 'pointerdown', 800, 200)
+    drag(tab, 'pointermove', 600, 200)
+    const undocked = getByLabelText('Open TanStack Devtools')
+    drag(undocked, 'pointermove', 500, 200)
+    drag(undocked, 'pointermove', 500, 200)
+    drag(undocked, 'pointerup', 500, 200)
+
+    expect(
+      queryByLabelText('Open TanStack Devtools (docked)'),
+    ).not.toBeInTheDocument()
+    expect(undocked).toBeInTheDocument()
+  })
+})
+
+describe('repositioning the floating trigger on window resize (no regression)', () => {
+  const originalInnerWidth = window.innerWidth
+  const originalInnerHeight = window.innerHeight
+
+  beforeEach(() => {
+    localStorage.clear()
+    Element.prototype.setPointerCapture = vi.fn()
+    Element.prototype.releasePointerCapture = vi.fn()
+    Element.prototype.hasPointerCapture = vi.fn(() => false)
+  })
+
+  afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: originalInnerWidth,
+    })
+    Object.defineProperty(window, 'innerHeight', {
+      configurable: true,
+      value: originalInnerHeight,
+    })
+  })
+
+  const drag = (el: Element, type: string, x: number, y: number) =>
+    el.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        button: 0,
+        pointerId: 1,
+        clientX: x,
+        clientY: y,
+      }),
+    )
+
+  const resize = () => window.dispatchEvent(new Event('resize'))
+
+  it('keeps a corner-pinned trigger on screen after a shrink', () => {
+    const { getByLabelText } = renderTrigger({ triggerMode: 'floating' })
+    const button = getByLabelText('Open TanStack Devtools')
+
+    // Pin to the bottom-right corner (stored {x:100, y:100}).
+    drag(button, 'pointerdown', 8, 8)
+    drag(button, 'pointermove', 1016, 760)
+    drag(button, 'pointerup', 1016, 760)
+
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: 800,
+    })
+    Object.defineProperty(window, 'innerHeight', {
+      configurable: true,
+      value: 400,
+    })
+    resize()
+
+    const left = parseInt(button.style.left, 10)
+    const top = parseInt(button.style.top, 10)
+    expect(left).toBeGreaterThanOrEqual(0)
+    expect(left).toBeLessThanOrEqual(800)
+    expect(top).toBeGreaterThanOrEqual(0)
+    expect(top).toBeLessThanOrEqual(400)
+  })
+
+  it('keeps an unpinned trigger on screen after a shrink', () => {
+    const { getByLabelText } = renderTrigger({ triggerMode: 'floating' })
+    const button = getByLabelText('Open TanStack Devtools')
+
+    drag(button, 'pointerdown', 8, 8)
+    drag(button, 'pointermove', 500, 50)
+    // Hold still before the release so it drops in place instead of throwing.
+    drag(button, 'pointermove', 500, 50)
+    drag(button, 'pointerup', 500, 50)
+
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: 400,
+    })
+    Object.defineProperty(window, 'innerHeight', {
+      configurable: true,
+      value: 300,
+    })
+    resize()
+
+    const left = parseInt(button.style.left, 10)
+    const top = parseInt(button.style.top, 10)
+    expect(left).toBeGreaterThanOrEqual(0)
+    expect(left).toBeLessThanOrEqual(400)
+    expect(top).toBeGreaterThanOrEqual(0)
+    expect(top).toBeLessThanOrEqual(300)
+  })
+})
+
+describe('the mid-drag edge preview still follows the cursor (no regression)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    Element.prototype.setPointerCapture = vi.fn()
+    Element.prototype.releasePointerCapture = vi.fn()
+    Element.prototype.hasPointerCapture = vi.fn(() => false)
+  })
+
+  const drag = (el: Element, type: string, x: number, y: number) =>
+    el.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        button: 0,
+        pointerId: 1,
+        clientX: x,
+        clientY: y,
+      }),
+    )
+
+  it('renders the edge-tab preview at the drag position, not the stored percent', () => {
+    const { getByLabelText } = renderTrigger({
+      triggerMode: 'floating',
+      triggerCoords: { x: 50, y: 10 },
+    })
+    const button = getByLabelText('Open TanStack Devtools')
+
+    // Drag the trigger over the right edge near the bottom without
+    // releasing: the preview tracks the cursor (near y=760), not the 10%
+    // stored spot.
+    drag(button, 'pointerdown', 8, 8)
+    drag(button, 'pointermove', 5000, 760)
+
+    const tab = getByLabelText('Open TanStack Devtools (docked)')
+    expect(tab).toBeInTheDocument()
+    const top = parseInt(tab.style.top, 10)
+    expect(top).toBeGreaterThan(380)
+    expect(top).toBeLessThanOrEqual(768 - 44 - 8)
+  })
+})

@@ -217,6 +217,12 @@ export const Trigger = (props: {
     settings().triggerEdge ?? null,
   )
   const [hoverEdge, setHoverEdge] = createSignal<TriggerEdge | null>(null)
+  // Bumped on `resize` while the trigger is docked so `edgeTabStyle` re-runs
+  // and recomputes the tab's along-edge offset against the new viewport.
+  // Without it, the offset is frozen at the pixel the tab was docked at
+  // (or the percent-mapped pixel computed once at mount) and the tab can
+  // end up entirely outside the new viewport.
+  const [viewportTick, setViewportTick] = createSignal(0)
   const [tooltipVisible, setTooltipVisible] = createSignal(false)
   const [magneticMode, setMagneticMode] = createSignal(false)
   const [shiftMagnetic, setShiftMagnetic] = createSignal(false)
@@ -373,22 +379,32 @@ export const Trigger = (props: {
 
   const edgeTabStyle = (edge: TriggerEdge) => {
     const vertical = edge === 'left' || edge === 'right'
-    const current = coords()
+    // While docked the tab keeps the same relative spot along its edge at any
+    // window size: it maps the stored percent (viewport-size-agnostic) into
+    // the current viewport and clamps back into view. While only previewing
+    // (mid-drag) coords() still tracks the pointer, so the preview follows
+    // the cursor. Reading `viewportTick` makes the docked branch re-run on
+    // `resize` (the viewport is otherwise a plain, non-reactive DOM read).
+    const isDocked = dockedEdge() !== null
+    if (isDocked) viewportTick()
     const viewport = vertical ? viewportHeight() : viewportWidth()
     const max = Math.max(
       TRIGGER_EDGE_TAB_PAD,
       viewport - TRIGGER_EDGE_TAB_LENGTH - TRIGGER_EDGE_TAB_PAD,
     )
-    // After a reload while docked there are no pixels yet: use the stored
-    // percent along the edge.
     const stored = settings().triggerCoords
-    const along =
-      (vertical ? current?.y : current?.x) ??
-      toPixels(
-        (vertical ? stored?.y : stored?.x) ?? 50,
-        TRIGGER_EDGE_TAB_PAD,
-        max,
-      )
+    const along = isDocked
+      ? toPixels(
+          (vertical ? stored?.y : stored?.x) ?? 50,
+          TRIGGER_EDGE_TAB_PAD,
+          max,
+        )
+      : ((vertical ? coords()?.y : coords()?.x) ??
+        toPixels(
+          (vertical ? stored?.y : stored?.x) ?? 50,
+          TRIGGER_EDGE_TAB_PAD,
+          max,
+        ))
     const pos = clamp(along, TRIGGER_EDGE_TAB_PAD, max)
     return vertical ? { top: `${pos}px` } : { left: `${pos}px` }
   }
@@ -717,7 +733,13 @@ export const Trigger = (props: {
   createEffect(() => {
     if (!isFloating()) return
     const onResize = () => {
-      if (dockedEdge()) return
+      if (dockedEdge()) {
+        // While docked the floating button is unmounted, so its stored
+        // percent can't be re-`placeFromSettings`-ed — nudge `viewportTick`
+        // so `edgeTabStyle` recomputes the tab against the new viewport.
+        setViewportTick((v) => v + 1)
+        return
+      }
       const el = buttonRef()
       // A drag or throw in flight owns the position; it persists when it ends.
       if (el && !dragging && raf === undefined) placeFromSettings(el)
