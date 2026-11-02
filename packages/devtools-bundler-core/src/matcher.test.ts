@@ -30,4 +30,23 @@ describe('matcher', () => {
     expect(matcher(patterns, 'src/components/ignored-file.jsx')).toBe(true)
     expect(matcher(patterns, 'src/components/other.jsx')).toBe(false)
   })
+
+  // picomatch string patterns are anchored at the start of the input. This is
+  // why callers must hand `matcher` a path with no leading slash: a relative
+  // glob like `src/**/*.jsx` matches `src/...` but never `/src/...`. See
+  // `inject-source.ts`, which strips the leading slash left by the cwd strip.
+  it('does not match relative globs against a leading-slash path', () => {
+    expect(matcher(['src/**/*.jsx'], 'src/components/ignored-file.jsx')).toBe(
+      true,
+    )
+    expect(matcher(['src/**/*.jsx'], '/src/components/ignored-file.jsx')).toBe(
+      false,
+    )
+    expect(
+      matcher(
+        ['src/components/ignored-file.jsx'],
+        '/src/components/ignored-file.jsx',
+      ),
+    ).toBe(false)
+  })
 })

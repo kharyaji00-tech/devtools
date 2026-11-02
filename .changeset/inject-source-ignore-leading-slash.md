@@ -1,0 +1,5 @@
+---
+'@tanstack/devtools-bundler-core': patch
+---
+
+Strip the leading slash left behind by the `process.cwd()` replacement in `addSourceToJsx` before matching `injectSource.ignore.files` patterns. Bundlers pass absolute module ids (Vite `transform` hook, Rspack `resourcePath`); stripping `cwd` from the normalized absolute path left a leading slash (e.g. `/src/components/a.tsx`), and since picomatch string patterns are anchored at the start of the input, natural relative globs documented as "relative to `process.cwd()`" (e.g. `src/**/*.tsx`, `src/components/foo.jsx`) never matched — so `ignore.files` silently failed for string patterns and the only workaround was an undocumented `**/` prefix. The location is now the path relative to `process.cwd()` with no leading slash, matching the documented contract; `**/`-prefixed globs and RegExp patterns continue to work. The downstream `data-tsd-source` consumer (`stripEnhancedLogPrefix`) already tolerated both forms, so the attribute value change is safe.
