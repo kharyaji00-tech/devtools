@@ -44,7 +44,9 @@ function createAllyValue() {
     setAllyResult({ audit: await runAudit(config), state: 'done' })
   }
 
-  const filteredIssues = createMemo(() => {
+  // threshold + disabledRules only — summary counts and the header total
+  // read from this so they don't collapse under an active impactKey filter
+  const unfilteredByImpact = createMemo(() => {
     if (allyResult.state !== 'done' || !allyResult.audit?.issues) return []
     let results = allyResult.audit.issues
 
@@ -57,11 +59,16 @@ function createAllyValue() {
       )
     }
 
-    // early return if all impacts selected
-    if (impactKey() === 'all') return results
-
-    return results.filter((val) => val.impact === impactKey())
+    return results
   })
+
+  // filteredIssues additionally applies the active impactKey severity filter
+  // (consumed by the rendered list and overlay highlights, NOT the summary)
+  const filteredIssues = createMemo(() =>
+    impactKey() === 'all'
+      ? unfilteredByImpact()
+      : unfilteredByImpact().filter((val) => val.impact === impactKey()),
+  )
 
   createEffect(() => {
     if (config.showOverlays === false) {
@@ -82,6 +89,7 @@ function createAllyValue() {
     setImpactKey,
 
     filteredIssues,
+    unfilteredByImpact,
 
     triggerAllyScan,
 

@@ -12,7 +12,7 @@ export function Shell() {
   const styles = createStyles()
 
   // ally context
-  const { filteredIssues, allyResult, config, setConfig, triggerAllyScan } =
+  const { unfilteredByImpact, allyResult, config, setConfig, triggerAllyScan } =
     createAllyContext()
 
   // ui state
@@ -37,9 +37,9 @@ export function Shell() {
         <div class={styles().headerTitleRow}>
           <h2 class={styles().headerTitle}>Accessibility Audit</h2>
 
-          <Show when={allyResult.state === 'done' && filteredIssues()}>
+          <Show when={allyResult.state === 'done' && unfilteredByImpact()}>
             <span class={styles().headerSub}>
-              {`${filteredIssues().length} issue${filteredIssues().length !== 1 ? 's' : ''}`}
+              {`${unfilteredByImpact().length} issue${unfilteredByImpact().length !== 1 ? 's' : ''}`}
             </span>
           </Show>
         </div>

@@ -80,9 +80,10 @@ export function A11yIssueList(props: A11yIssueListProps) {
       <div class={styles().summaryGrid} data-tsd-surface>
         <For each={IMPACTS}>
           {(impact) => {
-            // Count issues from the reactive filteredIssues memo so counts update when config.threshold changes
+            // Summary counts derive from unfilteredByImpact so per-severity
+            // counts stay accurate even when an impactKey filter is active
             const issuesForImpact = () =>
-              ally.filteredIssues().filter((issue) => issue.impact === impact)
+              ally.unfilteredByImpact().filter((issue) => issue.impact === impact)
             const count = () => issuesForImpact().length || 0
 
             const active = () => ally.impactKey() === impact
