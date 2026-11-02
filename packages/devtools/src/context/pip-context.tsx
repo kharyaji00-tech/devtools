@@ -6,7 +6,7 @@ import {
   useContext as getContext,
   onCleanup,
 } from 'solid-js'
-import { delegateEvents } from 'solid-js/web'
+import { DelegatedEvents, delegateEvents } from 'solid-js/web'
 import { ensureDevtoolsStyles } from '@tanstack/devtools-ui/internal'
 import type { Accessor, JSX } from 'solid-js'
 
@@ -114,20 +114,14 @@ export const PiPProvider = (props: PiPProviderProps) => {
       }
     })
     ensureDevtoolsStyles(pip.document)
-    delegateEvents(
-      [
-        'focusin',
-        'focusout',
-        'pointermove',
-        'keydown',
-        'pointerdown',
-        'pointerup',
-        'click',
-        'mousedown',
-        'input',
-      ],
-      pip.document,
-    )
+    // Delegate the full Solid `DelegatedEvents` set on the popup document, so
+    // every delegated event handler rendered into the PiP window (e.g. the
+    // splitter's `onDblClick` reset) fires. Solid stores delegated handlers on
+    // the node (`node.$$<event>`) and dispatches them through a single
+    // document-level listener installed by `delegateEvents()` on the document
+    // the event targets — the main document gets the full set by default, but
+    // the popup document only gets what we register here.
+    delegateEvents([...DelegatedEvents], pip.document)
 
     setPipWindow(pip)
   }
