@@ -1,5 +1,5 @@
 import { createSolidPanel } from '@tanstack/devtools-utils/solid'
-import { A11yDevtoolsCore } from '../../core'
+import { A11yDevtoolsCore } from '../../core/core'
 
 import type { DevtoolsPanelProps } from '@tanstack/devtools-utils/solid'
 
