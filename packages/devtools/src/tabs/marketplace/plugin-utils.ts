@@ -136,6 +136,7 @@ export const buildPluginCards = (
           required: metadata.requires.minVersion,
           satisfied: versionCheck.satisfied,
           reason: versionCheck.reason,
+          violation: versionCheck.violation,
         }
       }
     }
@@ -156,8 +157,12 @@ export const buildPluginCards = (
     } else if (metadata.requires && !hasPackage) {
       actionType = 'requires-package'
     } else if (versionInfo && !versionInfo.satisfied) {
-      // Version doesn't meet requirements - need to bump
-      actionType = 'bump-version'
+      // A version above maxVersion cannot be fixed by the bump flow, which
+      // installs `^minVersion` -- doing so would either leave the dependency
+      // still above maxVersion or downgrade it. Block the card instead so a
+      // bump to ^minVersion is only offered for below-min violations.
+      actionType =
+        versionInfo.violation === 'max' ? 'version-mismatch' : 'bump-version'
     } else if (hasDevtools && isRegistered) {
       actionType = 'already-installed'
     } else if (hasDevtools && !isRegistered) {

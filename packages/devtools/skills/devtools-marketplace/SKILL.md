@@ -362,7 +362,7 @@ requires: {
 },
 ```
 
-The marketplace uses semver comparison (`packages/devtools/src/tabs/semver-utils.ts`) to determine if the user's installed version satisfies the range. When it does not, the card shows a "Bump Version" action instead of "Install".
+The marketplace uses semver comparison (`packages/devtools/src/tabs/semver-utils.ts`) to determine if the user's installed version satisfies the range. When the installed version is **below** `minVersion`, the card shows a "Bump Version" action (which bumps the dependency to `^minVersion`). When the installed version is **above** `maxVersion`, the card is blocked with a "Version Mismatch / Incompatible" badge and a disabled button -- bumping to `^minVersion` cannot fix an above-max violation (it would still install above max, or downgrade the user's dependency), so the card is not actionable.
 
 ### MEDIUM: Submitting without framework field
 
