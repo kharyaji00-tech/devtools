@@ -1818,6 +1818,9 @@ importers:
         specifier: workspace:*
         version: link:../devtools
     devDependencies:
+      '@solidjs/testing-library':
+        specifier: ^0.8.10
+        version: 0.8.10(solid-js@1.9.12)
       solid-js:
         specifier: ^1.9.9
         version: 1.9.12
