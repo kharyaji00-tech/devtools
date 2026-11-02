@@ -87,8 +87,24 @@ function truncateToChars(text: string, maxChars: number): string {
   return text.slice(0, maxChars - ELLIPSIS.length) + ELLIPSIS
 }
 
+/**
+ * `document.title` reads the first `<title>` in tree order, so an empty
+ * placeholder left before the real title (e.g. by another tool, or by this
+ * devtools' own synthetic `<title>` while mounted) would shadow it and report
+ * "No title" for a page that does have one. Resolve the title from the first
+ * `<title>` that actually has text, falling back to `document.title` and then
+ * an empty string.
+ */
+function getFirstNonEmptyTitle(): string {
+  for (const titleEl of Array.from(document.head.querySelectorAll('title'))) {
+    const text = titleEl.textContent
+    if (text.trim()) return text
+  }
+  return document.title || ''
+}
+
 function getSerpFromHead(): SerpData {
-  const title = document.title || ''
+  const title = getFirstNonEmptyTitle()
   const url = typeof window !== 'undefined' ? window.location.href : ''
 
   const metaTags = Array.from(document.head.querySelectorAll('meta'))

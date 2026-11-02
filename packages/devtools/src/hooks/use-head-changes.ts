@@ -60,14 +60,33 @@ export function createHeadChanges(
   } = opts
 
   onMount(() => {
+    // Resolve the <title> (creating one only when missing) BEFORE starting the
+    // head observer. The devtools must passively observe the host page's
+    // <head>: appending a synthetic <title> after `observe()` is captured by
+    // the observer we just armed and forwarded to consumers as a
+    // self-triggered `added` head change. Tracking the element we created lets
+    // us filter it out of `added`/`removed` events (mirroring `isStyleNode`)
+    // and remove it again on cleanup if the app never adopted it — otherwise
+    // the leftover empty <title> stays first in tree order and permanently
+    // shadows a real <title> the host app adds later, since `document.title`
+    // reads the first <title>.
+    let syntheticTitle: HTMLTitleElement | undefined
+    if (observeTitle && !document.head.querySelector('title')) {
+      syntheticTitle = document.createElement('title')
+      document.head.appendChild(syntheticTitle)
+    }
+    const titleEl = document.head.querySelector('title')
+
     const headObserver = new MutationObserver((mutations) => {
       for (const m of mutations) {
         if (m.type === 'childList') {
           m.addedNodes.forEach((node) => {
-            if (!isStyleNode(node)) onChange({ kind: 'added', node }, m)
+            if (!isStyleNode(node) && node !== syntheticTitle)
+              onChange({ kind: 'added', node }, m)
           })
           m.removedNodes.forEach((node) => {
-            if (!isStyleNode(node)) onChange({ kind: 'removed', node }, m)
+            if (!isStyleNode(node) && node !== syntheticTitle)
+              onChange({ kind: 'removed', node }, m)
           })
         } else if (m.type === 'attributes') {
           if (isStyleNode(m.target)) continue
@@ -103,12 +122,7 @@ export function createHeadChanges(
     // Extra explicit observer for <title>, since `document.title = "..."`
     // may not always bubble as a head mutation in all setups.
     let titleObserver: MutationObserver | undefined
-    if (observeTitle) {
-      const titleEl =
-        document.head.querySelector('title') ||
-        // create a <title> if missing so future changes are observable
-        document.head.appendChild(document.createElement('title'))
-
+    if (observeTitle && titleEl) {
       titleObserver = new MutationObserver(() => {
         onChange({ kind: 'title', title: document.title })
       })
@@ -122,6 +136,18 @@ export function createHeadChanges(
     onCleanup(() => {
       headObserver.disconnect()
       titleObserver?.disconnect()
+      // Remove the synthetic <title> only when it is still attached and still
+      // empty, so the devtools never leaves a placeholder that shadows a real
+      // <title> added after unmount. If the app populated it (e.g. via
+      // `document.title = "..."`, which writes into the first <title>), it is
+      // treated as adopted and left in place.
+      if (
+        syntheticTitle &&
+        syntheticTitle.parentNode &&
+        !syntheticTitle.textContent
+      ) {
+        syntheticTitle.parentNode.removeChild(syntheticTitle)
+      }
     })
   })
 }
