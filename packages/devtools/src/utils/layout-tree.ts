@@ -182,19 +182,6 @@ export const closeTab = (
   return tree === null ? null : prune(strip(tree))
 }
 
-/** Remove a whole group and everything in it. */
-export const closeGroup = (
-  tree: LayoutNode | null,
-  groupId: string,
-): LayoutNode | null => {
-  const group = findGroupById(tree, groupId)
-  if (group === null) return tree
-  return group.tabs.reduce<LayoutNode | null>(
-    (acc, tabId) => closeTab(acc, tabId),
-    tree,
-  )
-}
-
 /**
  * Replace a group's tab order wholesale, keeping the same tab selected.
  *
@@ -583,21 +570,6 @@ export const splitterHandles = (
   return handles
 }
 
-/** Rect per plugin id, which is what the panes are keyed by. */
-export const paneRects = (
-  tree: LayoutNode | null,
-  box: Size,
-  gutter = 0,
-): Record<string, Rect> => {
-  const byGroup = layoutRects(tree, box, gutter)
-  const out: Record<string, Rect> = {}
-  for (const group of allGroups(tree)) {
-    const rect = byGroup[group.id]
-    if (rect) for (const tabId of group.tabs) out[tabId] = rect
-  }
-  return out
-}
-
 /**
  * Whether splitting a group leaves both halves at least `min`. The workspace is
  * short, so a split that would produce an unreadable cell is refused and the
@@ -637,16 +609,6 @@ export const zoneAt = (
     entry[1] < best[1] ? entry : best,
   )
   return distance <= edge ? zone : 'center'
-}
-
-/** Insertion index for a tab dropped at `x` over a row of tab rects. */
-export const insertionIndex = (x: number, tabs: Array<Rect>): number => {
-  let index = 0
-  for (const rect of tabs) {
-    if (x < rect.left + rect.width / 2) break
-    index += 1
-  }
-  return index
 }
 
 const isRawGroup = (value: Record<string, unknown>): boolean =>
