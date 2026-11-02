@@ -1,4 +1,6 @@
+import { parseSync } from 'oxc-parser'
 import { describe, expect, test } from 'vitest'
+import { walk } from './ast-utils'
 import {
   detectDevtoolsFile,
   findDevtoolsComponentName,
@@ -35,6 +37,40 @@ const testTransform = (
   }
 
   return { transformed: true, code: result.code }
+}
+
+/**
+ * Parses transformed code and returns the `plugins={[...]}` array's element
+ * node types, with `null` (elision holes) represented as `'<HOLE>'`.
+ *
+ * A sparse array produced by buggy comma handling shows up here as a
+ * `'<HOLE>'` entry, so this is the direct regression guard for the
+ * "trailing comma followed by a comment" corruption.
+ */
+const getPluginsElementTypes = (code: string): Array<string> => {
+  const result = parseSync('input.tsx', code, {
+    sourceType: 'module',
+    lang: 'tsx',
+  })
+  let types: Array<string> = []
+  let found = false
+  walk(result.program, (node) => {
+    if (found) return
+    if (
+      node.type === 'JSXAttribute' &&
+      node.name.type === 'JSXIdentifier' &&
+      node.name.name === 'plugins' &&
+      node.value &&
+      node.value.type === 'JSXExpressionContainer' &&
+      node.value.expression.type === 'ArrayExpression'
+    ) {
+      types = node.value.expression.elements.map((el) =>
+        el === null ? '<HOLE>' : el.type,
+      )
+      found = true
+    }
+  })
+  return types
 }
 
 describe('inject-plugin', () => {
@@ -1134,6 +1170,169 @@ function App() {
       )
       expect(importMatches).not.toBeNull()
       expect(importMatches!.length).toBe(1)
+    })
+  })
+
+  describe('comments inside plugins array', () => {
+    test('appends without an elision hole when a line comment follows the trailing comma', () => {
+      const code = `
+        import { TanStackDevtools } from '@tanstack/react-devtools'
+
+        function App() {
+          return <TanStackDevtools plugins={[
+            FooPlugin(), // keep foo
+          ]} />
+        }
+      `
+
+      const result = testTransform(code, '@tanstack/bar-plugin', 'Bar', {
+        importName: 'BarPlugin',
+        type: 'function',
+      })
+
+      expect(result.transformed).toBe(true)
+      expect(result.code).toContain('BarPlugin()')
+      // Original element + new element, no elision hole inserted.
+      expect(getPluginsElementTypes(result.code)).toEqual([
+        'CallExpression',
+        'CallExpression',
+      ])
+    })
+
+    test('appends without an elision hole when a block comment follows the trailing comma', () => {
+      const code = `
+        import { TanStackDevtools } from '@tanstack/react-devtools'
+
+        function App() {
+          return <TanStackDevtools plugins={[FooPlugin(), /* keep foo */]} />
+        }
+      `
+
+      const result = testTransform(code, '@tanstack/bar-plugin', 'Bar', {
+        importName: 'BarPlugin',
+        type: 'function',
+      })
+
+      expect(result.transformed).toBe(true)
+      expect(result.code).toContain('BarPlugin()')
+      expect(getPluginsElementTypes(result.code)).toEqual([
+        'CallExpression',
+        'CallExpression',
+      ])
+    })
+
+    test('appends without an elision hole when a multiline block comment follows the trailing comma', () => {
+      const code = `
+        import { TanStackDevtools } from '@tanstack/react-devtools'
+
+        function App() {
+          return <TanStackDevtools plugins={[
+            FooPlugin(),
+            /* this is a
+               multiline comment */
+          ]} />
+        }
+      `
+
+      const result = testTransform(code, '@tanstack/bar-plugin', 'Bar', {
+        importName: 'BarPlugin',
+        type: 'function',
+      })
+
+      expect(result.transformed).toBe(true)
+      expect(result.code).toContain('BarPlugin()')
+      expect(getPluginsElementTypes(result.code)).toEqual([
+        'CallExpression',
+        'CallExpression',
+      ])
+    })
+
+    test('inserts a separating comma when a line comment is present without a trailing comma', () => {
+      const code = `
+        import { TanStackDevtools } from '@tanstack/react-devtools'
+
+        function App() {
+          return <TanStackDevtools plugins={[FooPlugin() // keep foo
+          ]} />
+        }
+      `
+
+      const result = testTransform(code, '@tanstack/bar-plugin', 'Bar', {
+        importName: 'BarPlugin',
+        type: 'function',
+      })
+
+      expect(result.transformed).toBe(true)
+      expect(result.code).toContain('BarPlugin()')
+      expect(getPluginsElementTypes(result.code)).toEqual([
+        'CallExpression',
+        'CallExpression',
+      ])
+    })
+
+    test('inserts a separating comma when a block comment is present without a trailing comma', () => {
+      const code = `
+        import { TanStackDevtools } from '@tanstack/react-devtools'
+
+        function App() {
+          return <TanStackDevtools plugins={[FooPlugin() /* keep foo */]} />
+        }
+      `
+
+      const result = testTransform(code, '@tanstack/bar-plugin', 'Bar', {
+        importName: 'BarPlugin',
+        type: 'function',
+      })
+
+      expect(result.transformed).toBe(true)
+      expect(result.code).toContain('BarPlugin()')
+      // A separating comma must be added; the result still parses as two
+      // elements with no hole.
+      expect(getPluginsElementTypes(result.code)).toEqual([
+        'CallExpression',
+        'CallExpression',
+      ])
+    })
+
+    test('appends correctly when a JSX object plugin is followed by a line comment + trailing comma', () => {
+      const code = `
+        import { TanStackDevtools } from '@tanstack/react-devtools'
+
+        function App() {
+          return <TanStackDevtools plugins={[
+            { name: 'other', render: <OtherPlugin /> }, // keep other
+          ]} />
+        }
+      `
+
+      const result = testTransform(
+        code,
+        '@tanstack/react-query-devtools',
+        'TanStack Query',
+        { importName: 'ReactQueryDevtoolsPanel', type: 'jsx' },
+      )
+
+      expect(result.transformed).toBe(true)
+      expect(removeEmptySpace(result.code)).toBe(
+        removeEmptySpace(`
+          import { TanStackDevtools } from '@tanstack/react-devtools'
+          import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
+
+          function App() {
+            return <TanStackDevtools plugins={[
+              { name: 'other', render: <OtherPlugin /> }, // keep other
+              {
+                name: "TanStack Query",
+                render: <ReactQueryDevtoolsPanel />
+              }
+            ]} />
+          }
+        `),
+      )
+      expect(getPluginsElementTypes(result.code)).toEqual([
+        'ObjectExpression',
+        'ObjectExpression',
+      ])
     })
   })
 })
