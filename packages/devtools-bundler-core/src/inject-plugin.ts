@@ -3,7 +3,7 @@ import MagicString from 'magic-string'
 import { parseSync } from 'oxc-parser'
 import { walk } from './ast-utils'
 import { isTanStackDevtoolsImport } from './devtools-packages'
-import type { Node } from 'oxc-parser'
+import type { Comment, Node } from 'oxc-parser'
 import type { PluginInjection } from '@tanstack/devtools-client'
 
 /**
@@ -131,6 +131,36 @@ function buildPluginString(
   return `{ name: ${JSON.stringify(displayName)}, render: <${importName} /> }`
 }
 
+/**
+ * Returns the slice of `code` between `rangeStart` and `rangeEnd` with any
+ * comments that fall fully within that range removed.
+ *
+ * Used to detect whether a separating comma already exists between the last
+ * array element and the closing bracket. A naive text check fails when a
+ * comment follows the trailing comma (e.g. `FooPlugin(), // keep foo`):
+ * `trimEnd()` then ends with the comment text rather than `,`, causing the
+ * injector to prepend a second comma and produce an elision hole. Stripping
+ * comments from the inspector range (via the parser's comment ranges) makes
+ * the trailing comma detectable again.
+ */
+function stripCommentsInRange(
+  code: string,
+  rangeStart: number,
+  rangeEnd: number,
+  comments: Array<Comment>,
+): string {
+  let result = ''
+  let cursor = rangeStart
+  for (const comment of comments) {
+    if (comment.start < rangeStart || comment.end > rangeEnd) continue
+    if (comment.start < cursor) continue
+    result += code.slice(cursor, comment.start)
+    cursor = comment.end
+  }
+  result += code.slice(cursor, rangeEnd)
+  return result
+}
+
 export const transformAndInject = (
   code: string,
   injection: PluginInjection,
@@ -204,8 +234,25 @@ export const transformAndInject = (
               const arrayEnd = expression.end - 1
               let prefix = ''
               if (expression.elements.length > 0) {
-                const arrayContent = code.slice(expression.start + 1, arrayEnd)
-                prefix = arrayContent.trimEnd().endsWith(',') ? ' ' : ', '
+                // Determine whether a separating comma is already present by
+                // inspecting the text after the last non-hole element, ignoring
+                // comments. Deriving this from AST positions (rather than a
+                // raw `trimEnd().endsWith(',')` on the whole array body)
+                // avoids being fooled by a comment that follows a trailing
+                // comma, which would otherwise yield a double comma and an
+                // elision hole in the user's source file.
+                const lastElement = [...expression.elements]
+                  .reverse()
+                  .find((el) => el !== null)
+                if (lastElement) {
+                  const tail = stripCommentsInRange(
+                    code,
+                    lastElement.end,
+                    arrayEnd,
+                    result.comments,
+                  )
+                  prefix = tail.includes(',') ? ' ' : ', '
+                }
               }
               s.appendLeft(arrayEnd, prefix + pluginStr)
             }
