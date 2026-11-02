@@ -68,13 +68,20 @@ export const PluginsStrip = (props: { isOpen: Accessor<boolean> }) => {
     const move = (moveEvent: PointerEvent) => {
       latest = { x: moveEvent.clientX, y: moveEvent.clientY }
     }
-    const up = () => {
+    // `pointerup` and `pointercancel` share one end handler so a cancelled
+    // pointer also clears the hold timer. Without this the hold would fire
+    // after the pointer was already taken and hand a phantom drag to the
+    // workspace, which would then attach its own listeners with no active
+    // pointer behind them.
+    const end = () => {
       window.clearTimeout(holdTimer)
       document.removeEventListener('pointermove', move)
-      document.removeEventListener('pointerup', up)
+      document.removeEventListener('pointerup', end)
+      document.removeEventListener('pointercancel', end)
     }
     document.addEventListener('pointermove', move)
-    document.addEventListener('pointerup', up)
+    document.addEventListener('pointerup', end)
+    document.addEventListener('pointercancel', end)
   }
 
   /**

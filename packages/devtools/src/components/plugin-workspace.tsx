@@ -464,15 +464,23 @@ export const PluginWorkspace = (props: {
       setPreviewAt(latest)
       setDropTarget(targetAt(localPoint(moveEvent)))
     }
-    const up = () => {
+    // `pointerup` and `pointercancel` share one end handler. A cancelled pointer
+    // (touch scroll takeover, OS gesture, native drag start, palm rejection)
+    // ends the gesture in place — same cleanup, but no drop is committed, so a
+    // cancelled hold never rearranges the layout or leaves a ghost drop for the
+    // next unrelated `pointerup`.
+    const end = (endEvent: PointerEvent) => {
       window.clearTimeout(holdTimer)
       document.removeEventListener('pointermove', move)
-      document.removeEventListener('pointerup', up)
-      if (dragging) commitDrop(dropTarget(), tabId)
+      document.removeEventListener('pointerup', end)
+      document.removeEventListener('pointercancel', end)
+      if (endEvent.type === 'pointerup' && dragging)
+        commitDrop(dropTarget(), tabId)
       clearDrag()
     }
     document.addEventListener('pointermove', move)
-    document.addEventListener('pointerup', up)
+    document.addEventListener('pointerup', end)
+    document.addEventListener('pointercancel', end)
   }
 
   /** The group under a point, in workspace coordinates. */
@@ -532,9 +540,18 @@ export const PluginWorkspace = (props: {
       setPreviewAt({ x: event.clientX, y: event.clientY })
       aim(localPoint(event))
     }
-    const up = () => {
+    // `pointerup` and `pointercancel` share one end handler so a cancelled
+    // pointer ends the drag without placing the plugin: no commit and no "was
+    // not placed" announcement, since the user was interrupted rather than
+    // released.
+    const end = (endEvent: PointerEvent) => {
       document.removeEventListener('pointermove', move)
-      document.removeEventListener('pointerup', up)
+      document.removeEventListener('pointerup', end)
+      document.removeEventListener('pointercancel', end)
+      if (endEvent.type === 'pointercancel') {
+        clearDrag()
+        return
+      }
       const target = dropTarget()
       if (target === null) {
         // Released outside any pane. Opening it here would be a surprise, and a
@@ -553,7 +570,8 @@ export const PluginWorkspace = (props: {
       clearDrag()
     }
     document.addEventListener('pointermove', move)
-    document.addEventListener('pointerup', up)
+    document.addEventListener('pointerup', end)
+    document.addEventListener('pointercancel', end)
   })
 
   const startSplitterDrag = (handle: SplitterHandle, event: PointerEvent) => {
@@ -586,19 +604,25 @@ export const PluginWorkspace = (props: {
         ),
       )
     }
-    const up = (upEvent: PointerEvent) => {
+    // `pointerup` and `pointercancel` share one end handler so a cancelled
+    // pointer still restores `user-select` and releases capture. Without this a
+    // cancel would leave the host page stuck with `user-select: none` and the
+    // leaked `pointermove` resizing panes on every subsequent pointer movement.
+    const end = (endEvent: PointerEvent) => {
       if (
         target instanceof HTMLElement &&
-        target.hasPointerCapture(upEvent.pointerId)
+        target.hasPointerCapture(endEvent.pointerId)
       ) {
-        target.releasePointerCapture(upEvent.pointerId)
+        target.releasePointerCapture(endEvent.pointerId)
       }
       document.body.style.userSelect = previousUserSelect
       document.removeEventListener('pointermove', move)
-      document.removeEventListener('pointerup', up)
+      document.removeEventListener('pointerup', end)
+      document.removeEventListener('pointercancel', end)
     }
     document.addEventListener('pointermove', move)
-    document.addEventListener('pointerup', up)
+    document.addEventListener('pointerup', end)
+    document.addEventListener('pointercancel', end)
   }
 
   const resetSplitterDrag = (handle: SplitterHandle) => {
