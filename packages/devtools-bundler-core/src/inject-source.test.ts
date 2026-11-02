@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { addSourceToJsx } from './inject-source'
 
 const removeEmptySpace = (str: string) => {
@@ -886,6 +886,145 @@ function test({...props })  {
         },
       )
       expect(output).toBe(undefined)
+    })
+
+    it('should skip injection for ignored file paths (relative glob, bare id)', () => {
+      // Natural "relative to cwd" glob form (no `**/` prefix) must match a
+      // bare relative id too, since the location has no leading slash here.
+      const output = addSourceToJsx(
+        `
+    function test() {
+        return <div />
+      }
+        `,
+        'src/components/ignored-file.jsx',
+        {
+          files: ['src/**/*.jsx'],
+        },
+      )
+      expect(output).toBe(undefined)
+    })
+  })
+
+  // Bundlers pass absolute module ids to addSourceToJsx (Vite's `transform`
+  // hook `id`, Rspack loader `this.resourcePath`). Stripping `process.cwd()`
+  // from such an absolute id leaves a leading slash (e.g. `/src/...`), and
+  // picomatch string patterns are anchored at the start of the input — so
+  // natural relative globs like `src/**/*.jsx` would never match without
+  // stripping that leading slash. These tests lock in that the location
+  // handed to the matcher is the path relative to `process.cwd()`.
+  describe('ignore patterns (absolute bundler ids)', () => {
+    const SRC = `
+    function test() {
+        return <div />
+      }
+        `
+
+    it('excludes with a relative glob against an absolute id under cwd', () => {
+      const absId = process.cwd() + '/src/components/ignored-file.jsx'
+      const output = addSourceToJsx(SRC, absId, {
+        files: ['src/**/*.jsx'],
+      })
+      expect(output).toBe(undefined)
+    })
+
+    it('excludes with a direct relative path pattern against an absolute id', () => {
+      const absId = process.cwd() + '/src/components/ignored-file.jsx'
+      const output = addSourceToJsx(SRC, absId, {
+        files: ['src/components/ignored-file.jsx'],
+      })
+      expect(output).toBe(undefined)
+    })
+
+    it('excludes with a nested directory glob against an absolute id', () => {
+      const absId = process.cwd() + '/src/components/ignored-file.jsx'
+      const output = addSourceToJsx(SRC, absId, {
+        files: ['src/components/**'],
+      })
+      expect(output).toBe(undefined)
+    })
+
+    it('still excludes with the `**/`-prefixed workaround (no regression)', () => {
+      const absId = process.cwd() + '/src/components/ignored-file.jsx'
+      const output = addSourceToJsx(SRC, absId, {
+        files: ['**/src/**/*.jsx'],
+      })
+      expect(output).toBe(undefined)
+    })
+
+    it('still excludes with a RegExp pattern against an absolute id (no regression)', () => {
+      const absId = process.cwd() + '/src/components/ignored-file.jsx'
+      const output = addSourceToJsx(SRC, absId, {
+        files: [/\bignored-file\.jsx$/],
+      })
+      expect(output).toBe(undefined)
+    })
+
+    it('does not over-exclude: a non-matching relative glob still injects', () => {
+      const absId = process.cwd() + '/src/components/ignored-file.jsx'
+      const output = addSourceToJsx(SRC, absId, {
+        files: ['test/**/*.jsx'],
+      })
+      expect(output?.code).toContain('data-tsd-source')
+    })
+
+    it('does not over-exclude: a glob for a sibling file leaves this file injected', () => {
+      const absId = process.cwd() + '/src/components/kept-file.jsx'
+      const output = addSourceToJsx(SRC, absId, {
+        files: ['src/components/ignored-file.jsx'],
+      })
+      expect(output?.code).toContain('data-tsd-source')
+    })
+
+    it('injects a relative (no leading slash) data-tsd-source for an absolute id', () => {
+      const absId = process.cwd() + '/src/components/kept-file.jsx'
+      const output = addSourceToJsx(SRC, absId)
+      expect(output?.code).toMatch(
+        /data-tsd-source="src\/components\/kept-file\.jsx:\d+:\d+"/,
+      )
+      // The leading slash left by the cwd strip must not leak into the attr.
+      expect(output?.code).not.toMatch(/data-tsd-source="\/src\//)
+    })
+
+    it('strips a query string from the id before computing the location', () => {
+      const absId = process.cwd() + '/src/components/ignored-file.jsx?v=1'
+      const output = addSourceToJsx(SRC, absId, {
+        files: ['src/**/*.jsx'],
+      })
+      expect(output).toBe(undefined)
+    })
+
+    // Rspack on Windows supplies backslash ids; normalizePath converts them to
+    // forward slashes before the cwd strip. Mocking cwd to a Windows-style
+    // path verifies the full normalize -> strip -> leading-slash removal chain.
+    describe('Windows backslash ids', () => {
+      afterEach(() => {
+        vi.restoreAllMocks()
+      })
+
+      it('excludes with a relative glob when id and cwd use backslashes', () => {
+        vi.spyOn(process, 'cwd').mockReturnValue('C:\\proj')
+        const output = addSourceToJsx(
+          SRC,
+          'C:\\proj\\src\\components\\ignored-file.jsx',
+          {
+            files: ['src/**/*.jsx'],
+          },
+        )
+        expect(output).toBe(undefined)
+      })
+
+      it('injects a relative (no leading slash) data-tsd-source for a backslash id', () => {
+        vi.spyOn(process, 'cwd').mockReturnValue('C:\\proj')
+        const output = addSourceToJsx(
+          SRC,
+          'C:\\proj\\src\\components\\kept-file.jsx',
+        )
+        expect(output?.code).toMatch(
+          /data-tsd-source="src\/components\/kept-file\.jsx:\d+:\d+"/,
+        )
+        expect(output?.code).not.toMatch(/data-tsd-source="\/src\//)
+      })
     })
   })
 
