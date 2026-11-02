@@ -86,12 +86,17 @@ export function satisfiesMaxVersion(
 
 /**
  * Check if a version satisfies both min and max requirements
+ *
+ * When the version is unsatisfied, `violation` reports which bound was
+ * crossed: `'min'` when the installed version is below `minVersion` (fixable
+ * by bumping) and `'max'` when it is above `maxVersion` (not fixable by a
+ * bump, since bumping installs `^minVersion`).
  */
 export function satisfiesVersionRange(
   currentVersion: string,
   minVersion?: string,
   maxVersion?: string,
-): { satisfied: boolean; reason?: string } {
+): { satisfied: boolean; reason?: string; violation?: 'min' | 'max' } {
   if (!minVersion && !maxVersion) {
     return { satisfied: true }
   }
@@ -99,6 +104,7 @@ export function satisfiesVersionRange(
   if (minVersion && !satisfiesMinVersion(currentVersion, minVersion)) {
     return {
       satisfied: false,
+      violation: 'min',
       reason: `Requires v${minVersion} or higher (current: v${currentVersion})`,
     }
   }
@@ -106,6 +112,7 @@ export function satisfiesVersionRange(
   if (maxVersion && !satisfiesMaxVersion(currentVersion, maxVersion)) {
     return {
       satisfied: false,
+      violation: 'max',
       reason: `Requires v${maxVersion} or lower (current: v${currentVersion})`,
     }
   }

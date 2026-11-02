@@ -176,6 +176,7 @@ describe('satisfiesVersionRange', () => {
     })
     expect(satisfiesVersionRange('0.9.0', '1.0.0')).toEqual({
       satisfied: false,
+      violation: 'min',
       reason: 'Requires v1.0.0 or higher (current: v0.9.0)',
     })
   })
@@ -186,6 +187,7 @@ describe('satisfiesVersionRange', () => {
     })
     expect(satisfiesVersionRange('3.0.0', undefined, '2.0.0')).toEqual({
       satisfied: false,
+      violation: 'max',
       reason: 'Requires v2.0.0 or lower (current: v3.0.0)',
     })
   })
@@ -196,10 +198,12 @@ describe('satisfiesVersionRange', () => {
     })
     expect(satisfiesVersionRange('0.9.0', '1.0.0', '2.0.0')).toEqual({
       satisfied: false,
+      violation: 'min',
       reason: 'Requires v1.0.0 or higher (current: v0.9.0)',
     })
     expect(satisfiesVersionRange('2.5.0', '1.0.0', '2.0.0')).toEqual({
       satisfied: false,
+      violation: 'max',
       reason: 'Requires v2.0.0 or lower (current: v2.5.0)',
     })
   })
@@ -214,5 +218,37 @@ describe('satisfiesVersionRange', () => {
     expect(satisfiesVersionRange('v1.5.0', '1.0.0', '2.0.0')).toEqual({
       satisfied: true,
     })
+  })
+
+  it('should report a "min" violation when only below the minimum', () => {
+    const result = satisfiesVersionRange('4.9.0', '5.0.0', '6.0.0')
+    expect(result.satisfied).toBe(false)
+    expect(result.violation).toBe('min')
+  })
+
+  it('should report a "max" violation when above the maximum', () => {
+    const result = satisfiesVersionRange('6.1.0', '5.0.0', '6.0.0')
+    expect(result.satisfied).toBe(false)
+    expect(result.violation).toBe('max')
+  })
+
+  it('should report a "max" violation when only a maximum is declared', () => {
+    const result = satisfiesVersionRange('2.1.0', undefined, '2.0.0')
+    expect(result.satisfied).toBe(false)
+    expect(result.violation).toBe('max')
+  })
+
+  it('should not set a violation when the range is satisfied', () => {
+    expect(
+      satisfiesVersionRange('5.5.0', '5.0.0', '6.0.0').violation,
+    ).toBeUndefined()
+    expect(satisfiesVersionRange('5.0.0').violation).toBeUndefined()
+  })
+
+  it('should prioritize the min violation when below min AND a max is declared (below-min is the actionable case)', () => {
+    // A version below the minimum is always also below any sensible maximum,
+    // and bumping to ^minVersion is the actionable fix, so min is reported first.
+    const result = satisfiesVersionRange('4.9.0', '5.0.0', '6.0.0')
+    expect(result.violation).toBe('min')
   })
 })

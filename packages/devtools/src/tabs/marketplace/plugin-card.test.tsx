@@ -129,4 +129,76 @@ describe('PluginCardComponent', () => {
     const { getByText } = renderCard(card)
     expect(getByText('For different framework projects')).toBeInTheDocument()
   })
+
+  it('renders a blocked "Version Mismatch" card for above-max versions', () => {
+    const onAction = vi.fn()
+    const card = makeCard({
+      actionType: 'version-mismatch',
+      hasPackage: true,
+      versionInfo: {
+        current: '5.5.0',
+        required: '5.0.0',
+        satisfied: false,
+        violation: 'max',
+        reason: 'Requires v5.2.0 or lower (current: v5.5.0)',
+      },
+    })
+
+    const { getByText, getByRole } = renderCard(card, onAction)
+
+    // Badge and button text come from the previously-unreachable version-mismatch
+    // branches of card-utils.
+    expect(getByText('Incompatible')).toBeInTheDocument()
+    expect(getByText('Version Mismatch')).toBeInTheDocument()
+
+    // The description surfaces the human-readable reason.
+    expect(
+      getByText('Requires v5.2.0 or lower (current: v5.5.0)'),
+    ).toBeInTheDocument()
+
+    // The button is disabled so bumping/injecting an incompatible plugin is not possible.
+    const button = getByRole('button', { name: 'Version Mismatch' })
+    expect(button).toBeDisabled()
+  })
+
+  it('does not invoke onAction when the version-mismatch button is clicked', () => {
+    const onAction = vi.fn()
+    const card = makeCard({
+      actionType: 'version-mismatch',
+      hasPackage: true,
+      versionInfo: {
+        current: '5.5.0',
+        required: '5.0.0',
+        satisfied: false,
+        violation: 'max',
+        reason: 'Requires v5.2.0 or lower (current: v5.5.0)',
+      },
+    })
+
+    const { getByRole } = renderCard(card, onAction)
+    const button = getByRole('button', { name: 'Version Mismatch' })
+    // Disabled buttons do not dispatch click events, but assert defensively.
+    button.click()
+    expect(onAction).not.toHaveBeenCalled()
+  })
+
+  it('renders an enabled "Bump Version" button for below-min versions', () => {
+    const onAction = vi.fn()
+    const card = makeCard({
+      actionType: 'bump-version',
+      hasPackage: true,
+      versionInfo: {
+        current: '4.9.0',
+        required: '5.0.0',
+        satisfied: false,
+        violation: 'min',
+        reason: 'Requires v5.0.0 or higher (current: v4.9.0)',
+      },
+    })
+
+    const { getByRole } = renderCard(card, onAction)
+    const button = getByRole('button', { name: 'Bump Version' })
+    // Below-min violations remain actionable, so the bump button must stay enabled.
+    expect(button).not.toBeDisabled()
+  })
 })

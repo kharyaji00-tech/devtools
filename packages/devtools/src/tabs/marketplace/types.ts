@@ -29,6 +29,8 @@ export interface PluginCard {
     required?: string
     satisfied: boolean
     reason?: string
+    /** Which range bound was crossed when `satisfied` is false. */
+    violation?: 'min' | 'max'
   }
 }
 
